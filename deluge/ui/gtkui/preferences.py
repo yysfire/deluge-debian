@@ -55,6 +55,7 @@ class Preferences(component.Component):
                     pkg_resources.resource_filename("deluge.ui.gtkui",
                                             "glade/preferences_dialog.glade"))
         self.pref_dialog = self.glade.get_widget("pref_dialog")
+        self.pref_dialog.set_transient_for(component.get("MainWindow").window)
         self.pref_dialog.set_icon(common.get_deluge_icon())
         self.treeview = self.glade.get_widget("treeview")
         self.notebook = self.glade.get_widget("notebook")
@@ -727,7 +728,10 @@ class Preferences(component.Component):
             config_to_set = {}
             for key in new_core_config.keys():
                 # The values do not match so this needs to be updated
-                if self.core_config[key] != new_core_config[key]:
+                try:
+                    if self.core_config[key] != new_core_config[key]:
+                        config_to_set[key] = new_core_config[key]
+                except KeyError:
                     config_to_set[key] = new_core_config[key]
 
             if config_to_set:

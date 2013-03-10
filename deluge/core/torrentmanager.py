@@ -17,9 +17,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with deluge.    If not, write to:
-# 	The Free Software Foundation, Inc.,
-# 	51 Franklin Street, Fifth Floor
-# 	Boston, MA  02110-1301, USA.
+#   The Free Software Foundation, Inc.,
+#   51 Franklin Street, Fifth Floor
+#   Boston, MA  02110-1301, USA.
 #
 #    In addition, as a special exception, the copyright holders give
 #    permission to link the code of portions of this program with the OpenSSL
@@ -149,7 +149,7 @@ class TorrentManager(component.Component):
 
         # Keeps track of resume data that needs to be saved to disk
         self.resume_data = {}
-        
+
         # Workaround to determine if TorrentAddedEvent is from state file
         self.session_started = False
 
@@ -417,9 +417,10 @@ class TorrentManager(component.Component):
             # Check for renamed files and if so, rename them in the torrent_info
             # before adding to the session.
             if options["mapped_files"]:
-                for index, name in options["mapped_files"].items():
-                    log.debug("renaming file index %s to %s", index, name)
-                    torrent_info.rename_file(index, utf8_encoded(name))
+                for index, filename in options["mapped_files"].items():
+                    filename = deluge.core.torrent.sanitize_filepath(filename)
+                    log.debug("renaming file index %s to %s", index, filename)
+                    torrent_info.rename_file(index, utf8_encoded(filename))
 
             add_torrent_params["ti"] = torrent_info
             add_torrent_params["resume_data"] = ""
@@ -447,7 +448,7 @@ class TorrentManager(component.Component):
         handle = None
         try:
             if magnet:
-                handle = lt.add_magnet_uri(self.session, magnet, add_torrent_params)
+                handle = lt.add_magnet_uri(self.session, utf8_encoded(magnet), add_torrent_params)
             else:
                 handle = self.session.add_torrent(add_torrent_params)
         except RuntimeError, e:
@@ -607,7 +608,7 @@ class TorrentManager(component.Component):
                 os.path.join(get_config_dir(), "state", "torrents.state"), "rb")
             state = cPickle.load(state_file)
             state_file.close()
-        except (EOFError, IOError, Exception), e:
+        except (EOFError, IOError, Exception, cPickle.UnpicklingError), e:
             log.warning("Unable to load state file: %s", e)
 
         # Try to use an old state
@@ -682,8 +683,8 @@ class TorrentManager(component.Component):
             state_file.flush()
             os.fsync(state_file.fileno())
             state_file.close()
-        except IOError:
-            log.warning("Unable to save state file.")
+        except IOError, e:
+            log.warning("Unable to save state file: %s", e)
             return True
 
         # We have to move the 'torrents.state.new' file to 'torrents.state'
@@ -789,7 +790,8 @@ class TorrentManager(component.Component):
                             os.removedirs(os.path.join(root, name))
                             log.debug("Removed Empty Folder %s", os.path.join(root, name))
                         except OSError, (errno, strerror):
-                            if errno == 39:
+                            from errno import ENOTEMPTY
+                            if errno == ENOTEMPTY:
                                 # Error raised if folder is not empty
                                 log.debug("%s", strerror)
 
@@ -855,9 +857,9 @@ class TorrentManager(component.Component):
         log.debug("on_alert_torrent_finished")
         try:
             torrent = self.torrents[str(alert.handle.info_hash())]
+            torrent_id = str(alert.handle.info_hash())
         except:
             return
-        torrent_id = str(alert.handle.info_hash())
         log.debug("%s is finished..", torrent_id)
 
         # Get the total_download and if it's 0, do not move.. It's likely
@@ -873,9 +875,9 @@ class TorrentManager(component.Component):
                 if torrent.options["download_location"] != move_path:
                     torrent.move_storage(move_path)
 
-            torrent.is_finished = True
             component.get("EventManager").emit(TorrentFinishedEvent(torrent_id))
 
+        torrent.is_finished = True
         torrent.update_state()
 
         # Only save resume data if it was actually downloaded something. Helps
@@ -890,9 +892,9 @@ class TorrentManager(component.Component):
         log.debug("on_alert_torrent_paused")
         try:
             torrent = self.torrents[str(alert.handle.info_hash())]
+            torrent_id = str(alert.handle.info_hash())
         except:
             return
-        torrent_id = str(alert.handle.info_hash())
         # Set the torrent state
         old_state = torrent.state
         torrent.update_state()
@@ -984,10 +986,9 @@ class TorrentManager(component.Component):
         log.debug("on_alert_torrent_resumed")
         try:
             torrent = self.torrents[str(alert.handle.info_hash())]
+            torrent_id = str(alert.handle.info_hash())
         except:
             return
-        torrent_id = str(alert.handle.info_hash())
-        torrent.is_finished = torrent.handle.is_seed()
         old_state = torrent.state
         torrent.update_state()
         if torrent.state != old_state:
@@ -1005,16 +1006,19 @@ class TorrentManager(component.Component):
 
         old_state = torrent.state
         torrent.update_state()
+
+        # Torrent may need to download data after checking.
+        if torrent.state in ('Checking', 'Checking Resume Data', 'Downloading'):
+            torrent.is_finished = False
+
         # Only emit a state changed event if the state has actually changed
         if torrent.state != old_state:
             component.get("EventManager").emit(TorrentStateChangedEvent(torrent_id, torrent.state))
 
     def on_alert_save_resume_data(self, alert):
         log.debug("on_alert_save_resume_data")
-
-        torrent_id = str(alert.handle.info_hash())
-
         try:
+            torrent_id = str(alert.handle.info_hash())
             torrent = self.torrents[torrent_id]
         except:
             return
@@ -1045,9 +1049,9 @@ class TorrentManager(component.Component):
         log.debug("index: %s name: %s", alert.index, alert.name.decode("utf8"))
         try:
             torrent = self.torrents[str(alert.handle.info_hash())]
+            torrent_id = str(alert.handle.info_hash())
         except:
             return
-        torrent_id = str(alert.handle.info_hash())
 
         # We need to see if this file index is in a waiting_on_folder list
         folder_rename = False
@@ -1089,6 +1093,9 @@ class TorrentManager(component.Component):
 
     def on_alert_file_completed(self, alert):
         log.debug("file_completed_alert: %s", alert.message())
-        torrent_id = str(alert.handle.info_hash())
+        try:
+            torrent_id = str(alert.handle.info_hash())
+        except:
+            return
         component.get("EventManager").emit(
             TorrentFileCompletedEvent(torrent_id, alert.index))

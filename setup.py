@@ -17,9 +17,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.    If not, write to:
-# 	The Free Software Foundation, Inc.,
-# 	51 Franklin Street, Fifth Floor
-# 	Boston, MA    02110-1301, USA.
+#   The Free Software Foundation, Inc.,
+#   51 Franklin Street, Fifth Floor
+#   Boston, MA    02110-1301, USA.
 #
 
 try:
@@ -238,8 +238,10 @@ if build_libtorrent:
 
         _ext_modules = [libtorrent]
 
+desktop_data = 'deluge/data/share/applications/deluge.desktop'
+
 class build_trans(cmd.Command):
-    description = 'Compile .po files into .mo files'
+    description = 'Compile .po files into .mo files & create .desktop file'
 
     user_options = [
             ('build-lib', None, "lib build folder")
@@ -259,7 +261,6 @@ class build_trans(cmd.Command):
             INTLTOOL_MERGE='intltool-merge'
             INTLTOOL_MERGE_OPTS='--utf8 --quiet --desktop-style'
             desktop_in='deluge/data/share/applications/deluge.desktop.in'
-            desktop_data='deluge/data/share/applications/deluge.desktop'
             print('Creating desktop file: %s' % desktop_data)
             os.system('C_ALL=C ' + '%s '*5 % (INTLTOOL_MERGE, INTLTOOL_MERGE_OPTS, \
                         po_dir, desktop_in, desktop_data))
@@ -289,7 +290,7 @@ class build_trans(cmd.Command):
                             msgfmt.make(src, dest)
                         else:
                             uptoDate = True
-                            
+
         if uptoDate:
             sys.stdout.write(' po files already upto date.  ')
         sys.stdout.write('\b\b \nFinished compiling translation files. \n')
@@ -450,6 +451,14 @@ class clean_plugins(cmd.Command):
                     os.remove(os.path.join(path, fpath))
                 os.removedirs(path)
 
+        ROOT_EGG_INFO_DIR_PATH = "deluge*.egg-info"
+
+        for path in glob.glob(ROOT_EGG_INFO_DIR_PATH):
+            print("Deleting %s" % path)
+            for fpath in os.listdir(path):
+                os.remove(os.path.join(path, fpath))
+            os.removedirs(path)
+
 class clean(_clean):
     sub_commands = _clean.sub_commands + [('clean_plugins', None)]
 
@@ -458,6 +467,10 @@ class clean(_clean):
         for cmd_name in self.get_sub_commands():
             self.run_command(cmd_name)
         _clean.run(self)
+
+        if os.path.exists(desktop_data):
+            print("Deleting %s" % desktop_data)
+            os.remove(desktop_data)
 
 cmdclass = {
     'build': build,
@@ -496,9 +509,9 @@ _data_files = [
         'docs/man/deluge-console.1'])
 ]
 
-if not windows_check():
-    _data_files.append(('share/applications', ['deluge/data/share/applications/deluge.desktop']))
-    
+if not windows_check() and os.path.exists(desktop_data):
+    _data_files.append(('share/applications', [desktop_data]))
+
 entry_points = {
     "console_scripts": [
         "deluge-console = deluge.ui.console:start",
@@ -514,11 +527,11 @@ entry_points = {
 
 if windows_check():
     entry_points["console_scripts"].append("deluge-debug = deluge.main:start_ui")
-    
+
 # Main setup
 setup(
     name = "deluge",
-    version = "1.3.3",
+    version = "1.3.4",
     fullname = "Deluge Bittorrent Client",
     description = "Bittorrent Client",
     author = "Andrew Resch, Damien Churchill",

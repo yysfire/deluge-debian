@@ -251,15 +251,9 @@ Ext.namespace('Deluge.details');
  */
 Deluge.details.DetailsPanel = Ext.extend(Ext.TabPanel, {
 
-	region: 'south',
 	id: 'torrentDetails',
-	split: true,
-	height: 210,
-	minSize: 100,
-	collapsible: true,
-	margins: '0 5 5 5',
 	activeTab: 0,
-	
+
 	initComponent: function() {
 		Deluge.details.DetailsPanel.superclass.initComponent.call(this);
 		this.add(new Deluge.details.StatusTab());
@@ -1136,7 +1130,14 @@ Deluge.details.OptionsTab = Ext.extend(Ext.form.FormPanel, {
 		return String.format('<img src="flag/{0}" />', value);
 	}
 	function peerAddressRenderer(value, p, record) {
-		var seed = (record.data['seed'] == 1024) ? 'x-deluge-seed' : 'x-deluge-peer'
+		var seed = (record.data['seed'] == 1024) ? 'x-deluge-seed' : 'x-deluge-peer';
+		// Modify display of IPv6 to include brackets
+		var peer_ip = value.split(':');
+		if (peer_ip.length > 2) {
+			var port = peer_ip.pop();
+			var ip = peer_ip.join(":");
+			value = "[" + ip + "]:" + port;
+		}
 		return String.format('<div class="{0}">{1}</div>', seed, value);
 	}
 	function peerProgressRenderer(value) {
@@ -1372,7 +1373,7 @@ Deluge.details.StatusTab = Ext.extend(Ext.Panel, {
 		data.auto_managed = _((status.is_auto_managed) ? 'True' : 'False');
 
 		data.downloaded += ' (' + ((status.total_payload_download) ? fsize(status.total_payload_download) : '0.0 KiB') + ')';
-		data.uploaded += ' (' + ((status.total_payload_download) ? fsize(status.total_payload_download): '0.0 KiB') + ')';
+		data.uploaded += ' (' + ((status.total_payload_upload) ? fsize(status.total_payload_upload): '0.0 KiB') + ')';
 		
 		for (var field in this.fields) {
 			this.fields[field].innerHTML = data[field];
@@ -1437,7 +1438,7 @@ Deluge.add.Window = Ext.extend(Ext.Window, {
 });
 /*!
  * Deluge.add.AddWindow.js
- * 
+ *
  * Copyright (c) Damien Churchill 2009-2010 <damoxc@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -1487,7 +1488,7 @@ Deluge.add.AddWindow = Ext.extend(Deluge.add.Window, {
 
 		this.addButton(_('Cancel'), this.onCancelClick, this);
 		this.addButton(_('Add'), this.onAddClick, this);
-	
+
 		function torrentRenderer(value, p, r) {
 			if (r.data['info_hash']) {
 				return String.format('<div class="x-deluge-add-torrent-name">{0}</div>', value);
@@ -1510,7 +1511,7 @@ Deluge.add.AddWindow = Ext.extend(Deluge.add.Window, {
 				sortable: true,
 				renderer: torrentRenderer,
 				dataIndex: 'text'
-			}],	
+			}],
 			stripeRows: true,
 			singleSelect: true,
 			listeners: {
@@ -1521,6 +1522,7 @@ Deluge.add.AddWindow = Ext.extend(Deluge.add.Window, {
 			},
 			hideHeaders: true,
 			autoExpandColumn: 'torrent',
+			height: '100%',
 			autoScroll: true
 		});
 
@@ -1551,7 +1553,7 @@ Deluge.add.AddWindow = Ext.extend(Deluge.add.Window, {
 				}]
 			})
 		});
-	
+
 		this.optionsPanel = this.add(new Deluge.add.OptionsPanel());
 		this.on('hide', this.onHide, this);
 		this.on('show', this.onShow, this);
@@ -1602,16 +1604,14 @@ Deluge.add.AddWindow = Ext.extend(Deluge.add.Window, {
 		var torrent = this.list.getSelectedRecords()[0];
 		this.list.getStore().remove(torrent);
 		this.optionsPanel.clear();
-		
+
 		if (this.torrents && this.torrents[torrent.id]) delete this.torrents[torrent.id];
 	},
 
 	onSelect: function(list, selections) {
-		if (selections.length) {	
+		if (selections.length) {
 			var record = this.list.getRecord(selections[0]);
 			this.optionsPanel.setTorrent(record.get('info_hash'));
-			this.optionsPanel.files.setDisabled(false);
-			this.optionsPanel.form.setDisabled(false);
 		} else {
 			this.optionsPanel.files.setDisabled(true);
 			this.optionsPanel.form.setDisabled(true);
@@ -1630,7 +1630,7 @@ Deluge.add.AddWindow = Ext.extend(Deluge.add.Window, {
 			this.file.on('beforeadd', this.onTorrentBeforeAdd, this);
 			this.file.on('add', this.onTorrentAdd, this);
 		}
-	
+
 		this.optionsPanel.form.getDefaults();
 	},
 
@@ -1656,6 +1656,7 @@ Deluge.add.AddWindow = Ext.extend(Deluge.add.Window, {
 			r.set('text', info['name']);
 			this.list.getStore().commitChanges();
 			this.optionsPanel.addTorrent(info);
+			this.list.select(r);
 		}
 	},
 
@@ -1727,6 +1728,7 @@ Deluge.add.FileWindow = Ext.extend(Deluge.add.Window, {
 				xtype: 'fileuploadfield',
 				id: 'torrentFile',
 				width: 280,
+				height: 24,
 				emptyText: _('Select a torrent'),
 				fieldLabel: _('File'),
 				name: 'file',
@@ -1927,7 +1929,7 @@ Deluge.add.FilesTab = Ext.extend(Ext.ux.tree.TreeGrid, {
 Ext.namespace('Ext.deluge.add');
 /*!
  * Deluge.add.OptionsPanel.js
- * 
+ *
  * Copyright (c) Damien Churchill 2009-2010 <damoxc@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -1988,7 +1990,7 @@ Deluge.add.OptionsPanel = Ext.extend(Ext.TabPanel, {
 		Ext.each(Ext.keys(fileIndexes), function(index) {
 			priorities[index] = fileIndexes[index];
 		});
-		
+
 		var oldId = this.form.optionsManager.changeId(torrent['info_hash'], true);
 		this.form.optionsManager.setDefault('file_priorities', priorities);
 		this.form.optionsManager.changeId(oldId, true);
@@ -2018,23 +2020,34 @@ Deluge.add.OptionsPanel = Ext.extend(Ext.TabPanel, {
 
 		this.torrentId = torrentId;
 		this.form.optionsManager.changeId(torrentId);
-	
+
 		this.files.clearFiles();
 		var root = this.files.getRootNode();
 		var priorities = this.form.optionsManager.get('file_priorities');
 
-		this.walkFileTree(this.torrents[torrentId]['files_tree'], function(filename, type, entry, parentNode) {
-			var node = new Ext.tree.TreeNode({
-				download:  (entry.index) ? priorities[entry.index] : true,
-				filename:  filename,
-				fileindex: entry.index,
-				leaf:      type != 'dir',
-				size:      entry.length
-			});
-			parentNode.appendChild(node);
-			if (type == 'dir') return node;
-		}, this, root);
-		root.firstChild.expand();
+		this.form.setDisabled(false);
+
+		if (this.torrents[torrentId]['files_tree']) {
+			this.walkFileTree(this.torrents[torrentId]['files_tree'], function(filename, type, entry, parentNode) {
+				var node = new Ext.tree.TreeNode({
+					download:  (entry.index) ? priorities[entry.index] : true,
+					filename:  filename,
+					fileindex: entry.index,
+					leaf:      type != 'dir',
+					size:      entry.length
+				});
+				parentNode.appendChild(node);
+				if (type == 'dir') return node;
+			}, this, root);
+			root.firstChild.expand();
+			this.files.setDisabled(false);
+			this.files.show();
+		} else {
+			// Files tab is empty so show options tab
+			this.form.show();
+			this.files.setDisabled(true);
+		}
+
 	},
 
 	walkFileTree: function(files, callback, scope, parentNode) {
@@ -2047,7 +2060,7 @@ Deluge.add.OptionsPanel = Ext.extend(Ext.TabPanel, {
 			} else {
 				var ret = callback(filename, type, entry, parentNode);
 			}
-		
+
 			if (type == 'dir') this.walkFileTree(entry, callback, scope, ret);
 		}
 	},
@@ -2069,7 +2082,7 @@ Deluge.add.OptionsPanel = Ext.extend(Ext.TabPanel, {
 						}, this);
 					} else {
 						this.files.setDownload(nodes[0], oldValue, true);
-					}	
+					}
 				},
 				scope: this,
 				icon: Ext.MessageBox.QUESTION
@@ -2351,17 +2364,27 @@ Deluge.add.UrlWindow = Ext.extend(Deluge.add.Window, {
         var cookies = this.cookieField.getValue();
         var torrentId = this.createTorrentId();
 
-        deluge.client.web.download_torrent_from_url(url, cookies, {
-            success: this.onDownload,
-            scope: this,
-            torrentId: torrentId
-        });
+        if (url.substring(0,20) == 'magnet:?xt=urn:btih:') {
+            deluge.client.web.get_magnet_info(url, {
+                success: this.onGotInfo,
+                scope: this,
+                filename: url,
+                torrentId: torrentId
+            });
+        } else {
+            deluge.client.web.download_torrent_from_url(url, cookies, {
+                success: this.onDownload,
+                scope: this,
+                torrentId: torrentId
+            });
+        }
+
         this.hide();
+        this.urlField.setValue('');
         this.fireEvent('beforeadd', torrentId, url);
     },
 
     onDownload: function(filename, obj, resp, req) {
-        this.urlField.setValue('');
         deluge.client.web.get_torrent_info(filename, {
             success: this.onGotInfo,
             scope: this,
@@ -2607,7 +2630,7 @@ Deluge.preferences.Cache = Ext.extend(Ext.form.FormPanel, {
 			defaults: {
 				decimalPrecision: 0,
 				minValue: -1,
-				maxValue: 99999
+				maxValue: 999999
 			}
 		});
 		om.bind('cache_size', fieldset.add({
@@ -3061,7 +3084,7 @@ Deluge.preferences.InstallPluginWindow = Ext.extend(Ext.Window, {
 
 	onInstall: function(field, e) {
 		this.form.getForm().submit({
-			url: '/upload',
+			url: deluge.config.base + 'upload',
 			waitMsg: _('Uploading your plugin...'),
 			success: this.onUploadSuccess,
 			scope: this
@@ -3952,7 +3975,7 @@ Deluge.preferences.Plugins = Ext.extend(Ext.Panel, {
 });
 /*!
  * Deluge.preferences.PreferencesWindow.js
- * 
+ *
  * Copyright (c) Damien Churchill 2009-2010 <damoxc@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -4058,7 +4081,7 @@ Deluge.preferences.PreferencesWindow = Ext.extend(Ext.Window, {
 		this.addButton(_('Close'), this.onClose, this);
 		this.addButton(_('Apply'), this.onApply, this);
 		this.addButton(_('Ok'), this.onOk, this);
-		
+
 		this.optionsManager = new Deluge.OptionsManager();
 		this.on('afterrender', this.onAfterRender, this);
 		this.on('show', this.onShow, this);
@@ -4080,7 +4103,7 @@ Deluge.preferences.PreferencesWindow = Ext.extend(Ext.Window, {
 		this.addPage(new Deluge.preferences.Cache());
 		this.addPage(new Deluge.preferences.Plugins());
 	},
-	
+
 	onApply: function(e) {
 		var changed = this.optionsManager.getDirty();
 		if (!Ext.isObjectEmpty(changed)) {
@@ -4089,13 +4112,13 @@ Deluge.preferences.PreferencesWindow = Ext.extend(Ext.Window, {
 				scope: this
 			});
 		}
-		
+
 		for (var page in this.pages) {
 			if (this.pages[page].onApply) this.pages[page].onApply();
 		}
 	},
-	
-	
+
+
 	/**
 	 * Return the options manager for the preferences window.
 	 * @returns {Deluge.OptionsManager} the options manager
@@ -4103,7 +4126,7 @@ Deluge.preferences.PreferencesWindow = Ext.extend(Ext.Window, {
 	getOptionsManager: function() {
 		return this.optionsManager;
 	},
-	
+
 	/**
 	 * Adds a page to the preferences window.
 	 * @param {Mixed} page
@@ -4118,7 +4141,7 @@ Deluge.preferences.PreferencesWindow = Ext.extend(Ext.Window, {
 		this.pages[name].index = -1;
 		return this.pages[name];
 	},
-	
+
 	/**
 	 * Removes a preferences page from the window.
 	 * @param {mixed} name
@@ -4131,12 +4154,12 @@ Deluge.preferences.PreferencesWindow = Ext.extend(Ext.Window, {
 	    delete this.pages[page.title];
 	},
 
-	/** 
+	/**
 	 * Select which preferences page is displayed.
 	 * @param {String} page The page name to change to
 	 */
 	selectPage: function(page) {
-		if (this.pages[page].index < 0) { 
+		if (this.pages[page].index < 0) {
 			this.pages[page].index = this.configPanel.items.indexOf(this.pages[page]);
 		}
 		this.list.select(this.pages[page].index);
@@ -4144,24 +4167,24 @@ Deluge.preferences.PreferencesWindow = Ext.extend(Ext.Window, {
 
 	// private
 	doSelectPage: function(page) {
-		if (this.pages[page].index < 0) { 
+		if (this.pages[page].index < 0) {
 			this.pages[page].index = this.configPanel.items.indexOf(this.pages[page]);
 		}
 		this.configPanel.getLayout().setActiveItem(this.pages[page].index);
 		this.currentPage = page;
 	},
-	
+
 	// private
 	onGotConfig: function(config) {
 		this.getOptionsManager().set(config);
 	},
-	
+
 	// private
 	onPageSelect: function(list, selections) {
 		var r = list.getRecord(selections[0]);
 		this.doSelectPage(r.get('name'));
 	},
-	
+
 	// private
 	onSetConfig: function() {
 		this.getOptionsManager().commit();
@@ -4174,7 +4197,7 @@ Deluge.preferences.PreferencesWindow = Ext.extend(Ext.Window, {
 		}
 		this.configPanel.getLayout().setActiveItem(0);
 	},
-	
+
 	// private
 	onShow: function() {
 		if (!deluge.client.core) return;
@@ -4191,7 +4214,18 @@ Deluge.preferences.PreferencesWindow = Ext.extend(Ext.Window, {
 
 	// private
 	onOk: function() {
-		deluge.client.core.set_config(this.optionsManager.getDirty());
+		var changed = this.optionsManager.getDirty();
+		if (!Ext.isObjectEmpty(changed)) {
+			deluge.client.core.set_config(changed, {
+				success: this.onSetConfig,
+				scope: this
+			});
+		}
+
+		for (var page in this.pages) {
+			if (this.pages[page].onOk) this.pages[page].onOk();
+		}
+
 		this.hide();
 	}
 });
@@ -5995,12 +6029,13 @@ FILE_PRIORITY = {
     0: 'Do Not Download',
     1: 'Normal Priority',
     2: 'High Priority',
-    5: 'Highest Priority',
+    5: 'High Priority',
+    7: 'Highest Priority',
 	'Mixed': 9,
     'Do Not Download': 0,
     'Normal Priority': 1,
-    'High Priority': 2,
-    'Highest Priority': 5
+    'High Priority': 5,
+    'Highest Priority': 7
 }
 
 FILE_PRIORITY_CSS = {
@@ -6008,7 +6043,8 @@ FILE_PRIORITY_CSS = {
 	0: 'x-no-download',
 	1: 'x-normal-download',
 	2: 'x-high-download',
-	5: 'x-highest-download'
+	5: 'x-high-download',
+	7: 'x-highest-download'
 }
 /*!
  * Deluge.EditTrackerWindow.js
@@ -6784,7 +6820,27 @@ Deluge.Formatters = {
 	
 		return bytes.toFixed(1) + ' GiB'
 	},
+
+	/**
+	 * Formats the bytes value into a string with K, M or G units.
+	 *
+	 * @param {Number} bytes the filesize in bytes
+	 * @param {Boolean} showZero pass in true to displays 0 values
+	 * @return {String} formatted string with K, M or G units.
+	 */
+	sizeShort: function(bytes, showZero) {
+		if (!bytes && !showZero) return '';
+		bytes = bytes / 1024.0;
 	
+		if (bytes < 1024) { return bytes.toFixed(1)  + ' K'; }
+		else { bytes = bytes / 1024; }
+	
+		if (bytes < 1024) { return bytes.toFixed(1)  + ' M'; }
+		else { bytes = bytes / 1024; }
+	
+		return bytes.toFixed(1) + ' G'
+	},
+
 	/**
 	 * Formats a string to display a transfer speed utilizing {@link #size}
 	 *
@@ -6853,6 +6909,7 @@ Deluge.Formatters = {
 	}
 }
 var fsize = Deluge.Formatters.size;
+var fsize_short = Deluge.Formatters.sizeShort;
 var fspeed = Deluge.Formatters.speed;
 var ftime = Deluge.Formatters.timeRemaining;
 var fdate = Deluge.Formatters.date;
@@ -6902,13 +6959,17 @@ Deluge.Keys = {
 	 * <pre>['queue', 'name', 'total_size', 'state', 'progress', 'num_seeds',
 	 * 'total_seeds', 'num_peers', 'total_peers', 'download_payload_rate',
 	 * 'upload_payload_rate', 'eta', 'ratio', 'distributed_copies',
-	 * 'is_auto_managed', 'time_added', 'tracker_host']</pre>
+	 * 'is_auto_managed', 'time_added', 'tracker_host', 'save_path',
+	 * 'total_done', 'total_uploaded', 'max_download_speed', 'max_upload_speed',
+	 * 'seeds_peers_ratio']</pre>
 	 */
     Grid: [
         'queue', 'name', 'total_size', 'state', 'progress', 'num_seeds',
         'total_seeds', 'num_peers', 'total_peers', 'download_payload_rate',
         'upload_payload_rate', 'eta', 'ratio', 'distributed_copies',
-        'is_auto_managed', 'time_added', 'tracker_host', 'save_path'
+        'is_auto_managed', 'time_added', 'tracker_host', 'save_path',
+        'total_done', 'total_uploaded', 'max_download_speed', 'max_upload_speed',
+        'seeds_peers_ratio'
     ],
 
     /**
@@ -7119,7 +7180,7 @@ Deluge.LoginWindow = Ext.extend(Ext.Window, {
 	},
 	
 	onShow: function() {
-		this.passwordField.focus(true, true);
+		this.passwordField.focus(true, 100);
 	}
 });
 /*!
@@ -7374,22 +7435,22 @@ deluge.menus.filePriorities = new Ext.menu.Menu({
 		id: 'no_download',
 		text: _('Do Not Download'),
 		iconCls: 'icon-do-not-download',
-		filePriority: 0
+		filePriority: FILE_PRIORITY['Do Not Download']
 	}, {
 		id: 'normal',
 		text: _('Normal Priority'),
 		iconCls: 'icon-normal',
-		filePriority: 1
+		filePriority: FILE_PRIORITY['Normal Priority']
 	}, {
 		id: 'high',
 		text: _('High Priority'),
 		iconCls: 'icon-high',
-		filePriority: 2
+		filePriority: FILE_PRIORITY['High Priority']
 	}, {
 		id: 'highest',
 		text: _('Highest Priority'),
 		iconCls: 'icon-highest',
-		filePriority: 5
+		filePriority: FILE_PRIORITY['Highest Priority']
 	}]
 });
 /*!
@@ -8093,7 +8154,7 @@ Deluge.Sidebar = Ext.extend(Ext.Panel, {
 			layout: 'accordion',
 			split: true,
 			width: 200,
-			minSize: 175,
+			minSize: 100,
 			collapsible: true,
 			margins: '5 0 0 5',
 			cmargins: '5 0 0 5'
@@ -8199,7 +8260,7 @@ Deluge.Sidebar = Ext.extend(Ext.Panel, {
 });
 /*!
  * Deluge.Statusbar.js
- * 
+ *
  * Copyright (c) Damien Churchill 2009-2010 <damoxc@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -8239,14 +8300,14 @@ Deluge.Statusbar = Ext.extend(Ext.ux.StatusBar, {
 		}, config);
 		Deluge.Statusbar.superclass.constructor.call(this, config);
 	},
-	
+
 	initComponent: function() {
 		Deluge.Statusbar.superclass.initComponent.call(this);
-		
+
 		deluge.events.on('connect', this.onConnect, this);
 		deluge.events.on('disconnect', this.onDisconnect, this);
 	},
-	
+
 	createButtons: function() {
 		this.buttons = this.add({
 			id: 'statusbar-connections',
@@ -8420,7 +8481,7 @@ Deluge.Statusbar = Ext.extend(Ext.ux.StatusBar, {
 		});
 		this.created = true;
 	},
-	
+
 	onConnect: function() {
 		this.setStatus({
 			iconCls: 'x-connected',
@@ -8445,12 +8506,12 @@ Deluge.Statusbar = Ext.extend(Ext.ux.StatusBar, {
 		});
 		this.doLayout();
 	},
-	
+
 	update: function(stats) {
 		if (!stats) return;
-		
+
 		function addSpeed(val) {return val + ' KiB/s'}
-		
+
 		var updateStat = function(name, config) {
 			var item = this.items.get('statusbar-' + name);
 			if (config.limit.value > 0) {
@@ -8465,7 +8526,7 @@ Deluge.Statusbar = Ext.extend(Ext.ux.StatusBar, {
 			if (!item.menu) return;
 			item.menu.setValue(config.limit.value);
 		}.createDelegate(this);
-		
+
 		updateStat('connections', {
 			value: {value: stats.num_connections},
 			limit: {value: stats.max_num_connections},
@@ -8554,8 +8615,15 @@ Deluge.Toolbar = Ext.extend(Ext.Toolbar, {
 		config = Ext.apply({
 			items: [
 				{
+					id: 'tbar-deluge-text',
+					disabled: true,
+					text: _('Deluge'),
+					iconCls: 'x-deluge-main-panel',
+				}, new Ext.Toolbar.Separator(),
+				{
 					id: 'create',
 					disabled: true,
+					hidden: true,
 					text: _('Create'),
 					iconCls: 'icon-create',
 					handler: this.onTorrentAction
@@ -8571,7 +8639,7 @@ Deluge.Toolbar = Ext.extend(Ext.Toolbar, {
 					text: _('Remove'),
 					iconCls: 'icon-remove',
 					handler: this.onTorrentAction
-				},'|',{
+				}, new Ext.Toolbar.Separator(),{
 					id: 'pause',
 					disabled: true,
 					text: _('Pause'),
@@ -8583,7 +8651,7 @@ Deluge.Toolbar = Ext.extend(Ext.Toolbar, {
 					text: _('Resume'),
 					iconCls: 'icon-resume',
 					handler: this.onTorrentAction
-				},'|',{
+				}, new Ext.Toolbar.Separator(),{
 					id: 'up',
 					cls: 'x-btn-text-icon',
 					disabled: true,
@@ -8596,7 +8664,7 @@ Deluge.Toolbar = Ext.extend(Ext.Toolbar, {
 					text: _('Down'),
 					iconCls: 'icon-down',
 					handler: this.onTorrentAction
-				},'|',{
+				}, new Ext.Toolbar.Separator(),{
 					id: 'preferences',
 					text: _('Preferences'),
 					iconCls: 'x-deluge-preferences',
@@ -8704,11 +8772,9 @@ Deluge.Toolbar = Ext.extend(Ext.Toolbar, {
 		deluge.add.show();
 	}
 });
-
-deluge.toolbar = new Deluge.Toolbar();
 /*!
  * Deluge.TorrentGrid.js
- * 
+ *
  * Copyright (c) Damien Churchill 2009-2010 <damoxc@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -8751,11 +8817,20 @@ deluge.toolbar = new Deluge.Toolbar();
 		if (!value) return;
 		return fspeed(value);
 	}
+	function torrentLimitRenderer(value) {
+		if (value == -1) return '';
+		return fspeed(value * 1024.0);
+	}
 	function torrentProgressRenderer(value, p, r) {
 		value = new Number(value);
 		var progress = value;
 		var text = r.data['state'] + ' ' + value.toFixed(2) + '%';
-		var width = new Number(this.style.match(/\w+:\s*(\d+)\w+/)[1]);
+		if ( this.style ) {
+			var style = this.style
+		} else {
+			var style = p.style
+		}
+		var width = new Number(style.match(/\w+:\s*(\d+)\w+/)[1]);
 		return Deluge.progressBar(value, width - 8, text);
 	}
 	function seedsRenderer(value, p, r) {
@@ -8773,12 +8848,12 @@ deluge.toolbar = new Deluge.Toolbar();
 		}
 	}
 	function availRenderer(value, p, r)	{
-		return (value < 0) ? '&infin;' : new Number(value).toFixed(3);
+		return (value < 0) ? '&infin;' : parseFloat(new Number(value).toFixed(3));
 	}
 	function trackerRenderer(value, p, r) {
 		return String.format('<div style="background: url(' + deluge.config.base + 'tracker/{0}) no-repeat; padding-left: 20px;">{0}</div>', value);
 	}
-	
+
 	function etaSorter(eta) {
 		return eta * -1;
 	}
@@ -8801,9 +8876,9 @@ deluge.toolbar = new Deluge.Toolbar();
 
 		columns: [{
 			id:'queue',
-			header: _('#'), 
-			width: 30, 
-			sortable: true, 
+			header: _('#'),
+			width: 30,
+			sortable: true,
 			renderer: queueRenderer,
 			dataIndex: 'queue'
 		}, {
@@ -8821,22 +8896,10 @@ deluge.toolbar = new Deluge.Toolbar();
 			dataIndex: 'total_size'
 		}, {
 			header: _('Progress'),
-			width: 150, 
-			sortable: true, 
+			width: 150,
+			sortable: true,
 			renderer: torrentProgressRenderer,
 			dataIndex: 'progress'
-		}, {
-			header: _('Seeders'),
-			width: 60,
-			sortable: true,
-			renderer: seedsRenderer,
-			dataIndex: 'num_seeds'
-		}, {
-			header: _('Peers'),
-			width: 60,
-			sortable: true,
-			renderer: peersRenderer,
-			dataIndex: 'num_peers'
 		}, {
 			header: _('Down Speed'),
 			width: 80,
@@ -8856,35 +8919,89 @@ deluge.toolbar = new Deluge.Toolbar();
 			renderer: ftime,
 			dataIndex: 'eta'
 		}, {
+			header: _('Seeders'),
+			hidden: true,
+			width: 60,
+			sortable: true,
+			renderer: seedsRenderer,
+			dataIndex: 'num_seeds'
+		}, {
+			header: _('Peers'),
+			hidden: true,
+			width: 60,
+			sortable: true,
+			renderer: peersRenderer,
+			dataIndex: 'num_peers'
+		}, {
 			header: _('Ratio'),
+			hidden: true,
 			width: 60,
 			sortable: true,
 			renderer: availRenderer,
 			dataIndex: 'ratio'
 		}, {
 			header: _('Avail'),
+			hidden: true,
 			width: 60,
 			sortable: true,
 			renderer: availRenderer,
 			dataIndex: 'distributed_copies'
 		}, {
 			header: _('Added'),
+			hidden: true,
 			width: 80,
 			sortable: true,
 			renderer: fdate,
 			dataIndex: 'time_added'
 		}, {
 			header: _('Tracker'),
+			hidden: true,
 			width: 120,
 			sortable: true,
 			renderer: trackerRenderer,
 			dataIndex: 'tracker_host'
 		}, {
 			header: _('Save Path'),
+			hidden: true,
 			width: 120,
 			sortable: true,
 			renderer: fplain,
 			dataIndex: 'save_path'
+		}, {
+			header: _('Downloaded'),
+			hidden: true,
+			width: 75,
+			sortable: true,
+			renderer: fsize,
+			dataIndex: 'total_done'
+		}, {
+			header: _('Uploaded'),
+			hidden: true,
+			width: 75,
+			sortable: true,
+			renderer: fsize,
+			dataIndex: 'total_uploaded'
+		}, {
+			header: _('Down Limit'),
+			hidden: true,
+			width: 75,
+			sortable: true,
+			renderer: torrentLimitRenderer,
+			dataIndex: 'max_download_speed'
+		}, {
+			header: _('Up Limit'),
+			hidden: true,
+			width: 75,
+			sortable: true,
+			renderer: torrentLimitRenderer,
+			dataIndex: 'max_upload_speed'
+		}, {
+			header: _('Seeders') + '/' + _('Peers'),
+			hidden: true,
+			width: 75,
+			sortable: true,
+			renderer: availRenderer,
+			dataIndex: 'seeds_peers_ratio'
 		}],
 
 		meta: {
@@ -8907,19 +9024,42 @@ deluge.toolbar = new Deluge.Toolbar();
 				{name: 'distributed_copies', type: 'float'},
 				{name: 'time_added', type: 'int'},
 				{name: 'tracker_host'},
-				{name: 'save_path'}
+				{name: 'save_path'},
+				{name: 'total_done', type: 'int'},
+				{name: 'total_uploaded', type: 'int'},
+				{name: 'max_download_speed', type: 'int'},
+				{name: 'max_upload_speed', type: 'int'},
+				{name: 'seeds_peers_ratio', type: 'float'}
 			]
 		},
+
+		keys: [{
+			key: 'a',
+			ctrl: true,
+			stopEvent: true,
+			handler: function() {
+				deluge.torrents.getSelectionModel().selectAll();
+			}
+		}, {
+			key: [46],
+			stopEvent: true,
+			handler: function() {
+				ids = deluge.torrents.getSelectedIds();
+				deluge.removeWindow.show(ids);
+			}
+		}],
 
 		constructor: function(config) {
 			config = Ext.apply({
 				id: 'torrentGrid',
 				store: new Ext.data.JsonStore(this.meta),
 				columns: this.columns,
+				keys: this.keys,
 				region: 'center',
 				cls: 'deluge-torrents',
 				stripeRows: true,
 				autoExpandColumn: 'name',
+				autoExpandMin: 150,
 				deferredRender:false,
 				autoScroll:true,
 				margins: '5 5 0 0',
@@ -9117,16 +9257,33 @@ deluge.ui = {
 		deluge.preferences = new Deluge.preferences.PreferencesWindow();
 		deluge.sidebar = new Deluge.Sidebar();
 		deluge.statusbar = new Deluge.Statusbar();
+		deluge.toolbar = new Deluge.Toolbar();
+
+		this.detailsPanel = new Ext.Panel({
+			id: 'detailsPanel',
+			cls: 'detailsPanel',
+			region: 'south',
+			split: true,
+			height: 215,
+			minSize: 100,
+			collapsible: true,
+			margins: '0 5 5 5',
+			cmargins: '0 5 5 5',
+			layout: 'fit',
+			items: [
+				deluge.details
+			],
+		});
 
 		this.MainPanel = new Ext.Panel({
 			id: 'mainPanel',
 			iconCls: 'x-deluge-main-panel',
-			title: 'Deluge',
 			layout: 'border',
+			border: false,
 			tbar: deluge.toolbar,
 			items: [
 				deluge.sidebar,
-				deluge.details,
+				this.detailsPanel,
 				deluge.torrents
 			],
 			bbar: deluge.statusbar
@@ -9230,9 +9387,9 @@ deluge.ui = {
 		}
 
 		if (deluge.config.show_session_speed) {
-			document.title = this.originalTitle +
-				' (Down: ' + fspeed(data['stats'].download_rate, true) +
-				' Up: ' + fspeed(data['stats'].upload_rate, true) + ')';
+			document.title = 'D: ' + fsize_short(data['stats'].download_rate, true) +
+				' U: ' + fsize_short(data['stats'].upload_rate, true) + ' - ' +
+				this.originalTitle;
 		}
 		if (Ext.areObjectsEqual(this.filters, this.oldFilters)) {
 			deluge.torrents.update(data['torrents']);
