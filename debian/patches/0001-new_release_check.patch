@@ -1,12 +1,17 @@
-Description: Disable checking for new upstream releases enabled by default
- Users can still enable it throught the preferences menus.
-Forwarded: not-needed
-Origin: vendor
-Author: Adam Cécile (Le_Vert) <gandalf@le-vert.net>
+From: Cristian Greco <cristian@debian.org>
+Date: Sun, 10 Mar 2013 21:48:55 +0800
+Subject: new_release_check
 
+---
+ deluge/core/preferencesmanager.py |    2 +-
+ deluge/ui/gtkui/gtkui.py          |    4 ++--
+ 2 个文件被修改，插入 3 行(+)，删除 3 行(-)
+
+diff --git a/deluge/core/preferencesmanager.py b/deluge/core/preferencesmanager.py
+index 40070bb..137961a 100644
 --- a/deluge/core/preferencesmanager.py
 +++ b/deluge/core/preferencesmanager.py
-@@ -102,7 +102,7 @@
+@@ -102,7 +102,7 @@ DEFAULT_PREFS = {
      "auto_managed": True,
      "move_completed": False,
      "move_completed_path": deluge.common.get_default_download_dir(),
@@ -15,9 +20,11 @@ Author: Adam Cécile (Le_Vert) <gandalf@le-vert.net>
      "proxies": {
          "peer": {
              "type": 0,
+diff --git a/deluge/ui/gtkui/gtkui.py b/deluge/ui/gtkui/gtkui.py
+index 08bcfd4..e5948e1 100644
 --- a/deluge/ui/gtkui/gtkui.py
 +++ b/deluge/ui/gtkui/gtkui.py
-@@ -118,7 +118,7 @@
+@@ -124,7 +124,7 @@ DEFAULT_PREFS = {
      "enable_appindicator": False,
      "lock_tray": False,
      "tray_password": "",
@@ -26,7 +33,7 @@ Author: Adam Cécile (Le_Vert) <gandalf@le-vert.net>
      "default_load_path": None,
      "window_maximized": False,
      "window_x_pos": 0,
-@@ -140,7 +140,7 @@
+@@ -146,7 +146,7 @@ DEFAULT_PREFS = {
      "autoadd_enable": False,
      "autoadd_location": "",
      "choose_directory_dialog_path": deluge.common.get_default_download_dir(),
