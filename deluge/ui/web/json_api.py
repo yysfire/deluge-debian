@@ -41,6 +41,7 @@ import logging
 import hashlib
 import tempfile
 from urlparse import urljoin
+from urllib import unquote_plus
 
 from types import FunctionType
 from twisted.internet import reactor
@@ -354,7 +355,7 @@ class EventQueue(object):
         :type listener_id: string
         :param event: The event name
         :type event: string
-	    """
+        """
         if event not in self.__events:
 
             def on_event(*args):
@@ -375,7 +376,7 @@ class EventQueue(object):
 
         :param listener_id: A unique id for the listener
         :type listener_id: string
-	    """
+        """
 
         # Check to see if we have anything to return immediately
         if listener_id in self.__queue:
@@ -396,7 +397,7 @@ class EventQueue(object):
         else:
             # Prevent this loop going on indefinitely incase a client leaves
             # the page or disconnects uncleanly.
-            if count >= 3000:
+            if count >= 50:
                 d.callback(None)
             else:
                 reactor.callLater(0.1, self._get_events, listener_id, count + 1, d)
@@ -409,7 +410,7 @@ class EventQueue(object):
         :type listener_id: string
         :param event: The event name
         :type event: string
-	    """
+        """
         self.__events[event].remove(listener_id)
         if not self.__events[event]:
             client.deregister_event_handler(event, self.__handlers[event])
@@ -683,10 +684,8 @@ class WebApi(JSONComponent):
         ::
 
             {
-                "filename": the torrent file,
                 "name": the torrent name,
-                "size": the total size of the torrent,
-                "files": the files the torrent contains,
+                "files_tree": the files the torrent contains,
                 "info_hash" the torrents info_hash
             }
 
@@ -695,6 +694,45 @@ class WebApi(JSONComponent):
         try:
             torrent_info = uicommon.TorrentInfo(filename.strip(), 2)
             return torrent_info.as_dict("name", "info_hash", "files_tree")
+        except Exception, e:
+            log.exception(e)
+            return False
+
+    @export
+    def get_magnet_info(self, uri):
+        """
+        Return information about a magnet link.
+
+        :param uri: the magnet link
+        :type uri: string
+
+        :returns: information about the magnet link:
+
+        ::
+
+            {
+                "name": the torrent name,
+                "info_hash": the torrents info_hash,
+                "files_tree": empty value for magnet links
+            }
+
+        :rtype: dictionary
+        """
+        try:
+            s = uri.split("&")[0][20:]
+            if len(s) == 32:
+                info_hash = base64.b32decode(s).encode("hex")
+            elif len(s) == 40:
+                info_hash = s
+            else:
+                return False
+            name = None
+            for i in uri.split("&")[1:]:
+                if i[:3] == "dn=":
+                    name = unquote_plus(i.split("=")[1])
+            if not name:
+                name = info_hash
+            return {"name":name, "info_hash":info_hash, "files_tree":''}
         except Exception, e:
             log.exception(e)
             return False
@@ -717,11 +755,16 @@ class WebApi(JSONComponent):
 
         """
         for torrent in torrents:
-            filename = os.path.basename(torrent["path"])
-            fdump = base64.encodestring(open(torrent["path"], "rb").read())
-            log.info("Adding torrent from file `%s` with options `%r`",
-                     filename, torrent["options"])
-            client.core.add_torrent_file(filename, fdump, torrent["options"])
+            if common.is_magnet(torrent["path"]):
+                log.info("Adding torrent from magnet uri `%s` with options `%r`",
+                         torrent["path"], torrent["options"])
+                client.core.add_torrent_magnet(torrent["path"], torrent["options"])
+            else:
+                filename = os.path.basename(torrent["path"])
+                fdump = base64.encodestring(open(torrent["path"], "rb").read())
+                log.info("Adding torrent from file `%s` with options `%r`",
+                         filename, torrent["options"])
+                client.core.add_torrent_file(filename, fdump, torrent["options"])
         return True
 
     @export
@@ -735,11 +778,11 @@ class WebApi(JSONComponent):
     @export
     def get_host_status(self, host_id):
         """
-    	Returns the current status for the specified host.
+        Returns the current status for the specified host.
 
         :param host_id: the hash id of the host
         :type host_id: string
-    	"""
+        """
 
         def response(status, info=None):
             return host_id, host, port, status, info
@@ -747,6 +790,8 @@ class WebApi(JSONComponent):
         try:
             host_id, host, port, user, password = self.get_host(host_id)
         except TypeError, e:
+            host = None
+            port = None
             return response(_("Offline"))
 
         def on_connect(connected, c, host_id):
@@ -784,8 +829,8 @@ class WebApi(JSONComponent):
     @export
     def start_daemon(self, port):
         """
-	Starts a local daemon.
-	"""
+    Starts a local daemon.
+    """
         client.start_daemon(port, get_config_dir())
 
     @export
@@ -947,7 +992,7 @@ class WebApi(JSONComponent):
 
         :param event: The event name
         :type event: string
-    	"""
+        """
         self.event_queue.add_listener(__request__.session_id, event)
 
     @export
@@ -957,12 +1002,12 @@ class WebApi(JSONComponent):
 
         :param event: The event name
         :type event: string
-	    """
+        """
         self.event_queue.remove_listener(__request__.session_id, event)
 
     @export
     def get_events(self):
         """
         Retrieve the pending events for the session.
-    	"""
+        """
         return self.event_queue.get_events(__request__.session_id)

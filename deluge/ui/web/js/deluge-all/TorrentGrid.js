@@ -1,6 +1,6 @@
 /*!
  * Deluge.TorrentGrid.js
- * 
+ *
  * Copyright (c) Damien Churchill 2009-2010 <damoxc@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -43,11 +43,20 @@
 		if (!value) return;
 		return fspeed(value);
 	}
+	function torrentLimitRenderer(value) {
+		if (value == -1) return '';
+		return fspeed(value * 1024.0);
+	}
 	function torrentProgressRenderer(value, p, r) {
 		value = new Number(value);
 		var progress = value;
 		var text = r.data['state'] + ' ' + value.toFixed(2) + '%';
-		var width = new Number(this.style.match(/\w+:\s*(\d+)\w+/)[1]);
+		if ( this.style ) {
+			var style = this.style
+		} else {
+			var style = p.style
+		}
+		var width = new Number(style.match(/\w+:\s*(\d+)\w+/)[1]);
 		return Deluge.progressBar(value, width - 8, text);
 	}
 	function seedsRenderer(value, p, r) {
@@ -65,12 +74,12 @@
 		}
 	}
 	function availRenderer(value, p, r)	{
-		return (value < 0) ? '&infin;' : new Number(value).toFixed(3);
+		return (value < 0) ? '&infin;' : parseFloat(new Number(value).toFixed(3));
 	}
 	function trackerRenderer(value, p, r) {
 		return String.format('<div style="background: url(' + deluge.config.base + 'tracker/{0}) no-repeat; padding-left: 20px;">{0}</div>', value);
 	}
-	
+
 	function etaSorter(eta) {
 		return eta * -1;
 	}
@@ -93,9 +102,9 @@
 
 		columns: [{
 			id:'queue',
-			header: _('#'), 
-			width: 30, 
-			sortable: true, 
+			header: _('#'),
+			width: 30,
+			sortable: true,
 			renderer: queueRenderer,
 			dataIndex: 'queue'
 		}, {
@@ -113,22 +122,10 @@
 			dataIndex: 'total_size'
 		}, {
 			header: _('Progress'),
-			width: 150, 
-			sortable: true, 
+			width: 150,
+			sortable: true,
 			renderer: torrentProgressRenderer,
 			dataIndex: 'progress'
-		}, {
-			header: _('Seeders'),
-			width: 60,
-			sortable: true,
-			renderer: seedsRenderer,
-			dataIndex: 'num_seeds'
-		}, {
-			header: _('Peers'),
-			width: 60,
-			sortable: true,
-			renderer: peersRenderer,
-			dataIndex: 'num_peers'
 		}, {
 			header: _('Down Speed'),
 			width: 80,
@@ -148,35 +145,89 @@
 			renderer: ftime,
 			dataIndex: 'eta'
 		}, {
+			header: _('Seeders'),
+			hidden: true,
+			width: 60,
+			sortable: true,
+			renderer: seedsRenderer,
+			dataIndex: 'num_seeds'
+		}, {
+			header: _('Peers'),
+			hidden: true,
+			width: 60,
+			sortable: true,
+			renderer: peersRenderer,
+			dataIndex: 'num_peers'
+		}, {
 			header: _('Ratio'),
+			hidden: true,
 			width: 60,
 			sortable: true,
 			renderer: availRenderer,
 			dataIndex: 'ratio'
 		}, {
 			header: _('Avail'),
+			hidden: true,
 			width: 60,
 			sortable: true,
 			renderer: availRenderer,
 			dataIndex: 'distributed_copies'
 		}, {
 			header: _('Added'),
+			hidden: true,
 			width: 80,
 			sortable: true,
 			renderer: fdate,
 			dataIndex: 'time_added'
 		}, {
 			header: _('Tracker'),
+			hidden: true,
 			width: 120,
 			sortable: true,
 			renderer: trackerRenderer,
 			dataIndex: 'tracker_host'
 		}, {
 			header: _('Save Path'),
+			hidden: true,
 			width: 120,
 			sortable: true,
 			renderer: fplain,
 			dataIndex: 'save_path'
+		}, {
+			header: _('Downloaded'),
+			hidden: true,
+			width: 75,
+			sortable: true,
+			renderer: fsize,
+			dataIndex: 'total_done'
+		}, {
+			header: _('Uploaded'),
+			hidden: true,
+			width: 75,
+			sortable: true,
+			renderer: fsize,
+			dataIndex: 'total_uploaded'
+		}, {
+			header: _('Down Limit'),
+			hidden: true,
+			width: 75,
+			sortable: true,
+			renderer: torrentLimitRenderer,
+			dataIndex: 'max_download_speed'
+		}, {
+			header: _('Up Limit'),
+			hidden: true,
+			width: 75,
+			sortable: true,
+			renderer: torrentLimitRenderer,
+			dataIndex: 'max_upload_speed'
+		}, {
+			header: _('Seeders') + '/' + _('Peers'),
+			hidden: true,
+			width: 75,
+			sortable: true,
+			renderer: availRenderer,
+			dataIndex: 'seeds_peers_ratio'
 		}],
 
 		meta: {
@@ -199,19 +250,42 @@
 				{name: 'distributed_copies', type: 'float'},
 				{name: 'time_added', type: 'int'},
 				{name: 'tracker_host'},
-				{name: 'save_path'}
+				{name: 'save_path'},
+				{name: 'total_done', type: 'int'},
+				{name: 'total_uploaded', type: 'int'},
+				{name: 'max_download_speed', type: 'int'},
+				{name: 'max_upload_speed', type: 'int'},
+				{name: 'seeds_peers_ratio', type: 'float'}
 			]
 		},
+
+		keys: [{
+			key: 'a',
+			ctrl: true,
+			stopEvent: true,
+			handler: function() {
+				deluge.torrents.getSelectionModel().selectAll();
+			}
+		}, {
+			key: [46],
+			stopEvent: true,
+			handler: function() {
+				ids = deluge.torrents.getSelectedIds();
+				deluge.removeWindow.show(ids);
+			}
+		}],
 
 		constructor: function(config) {
 			config = Ext.apply({
 				id: 'torrentGrid',
 				store: new Ext.data.JsonStore(this.meta),
 				columns: this.columns,
+				keys: this.keys,
 				region: 'center',
 				cls: 'deluge-torrents',
 				stripeRows: true,
 				autoExpandColumn: 'name',
+				autoExpandMin: 150,
 				deferredRender:false,
 				autoScroll:true,
 				margins: '5 5 0 0',

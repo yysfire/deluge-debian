@@ -39,14 +39,13 @@ pygtk.require('2.0')
 import gtk, gtk.glade
 import gobject
 import pkg_resources
-from urlparse import urlparse
-import urllib
 
 from deluge.ui.client import client
 import deluge.component as component
 from deluge.configmanager import ConfigManager
 from deluge.ui.gtkui.ipcinterface import process_args
-from twisted.internet import reactor
+from twisted.internet import reactor, defer
+from twisted.internet.error import ReactorNotRunning
 
 import deluge.common
 import common
@@ -159,9 +158,31 @@ class MainWindow(component.Component):
         :param shutdown: whether or not to shutdown the daemon as well
         :type shutdown: boolean
         """
+
+        def shutdown_daemon(result):
+            return client.daemon.shutdown()
+
+        def disconnect_client(result):
+            return client.disconnect()
+
+        def stop_reactor(result):
+            try:
+                reactor.stop()
+            except ReactorNotRunning:
+                log.debug("Attempted to stop the reactor but it is not running...")
+
+        def log_failure(failure, action):
+            log.error("Encountered error attempting to %s: %s" % \
+                      (action, failure.getErrorMessage()))
+
+        d = defer.succeed(None)
         if shutdown:
-            client.daemon.shutdown()
-        reactor.stop()
+            d.addCallback(shutdown_daemon)
+            d.addErrback(log_failure, "shutdown daemon")
+        if not client.is_classicmode() and client.connected():
+            d.addCallback(disconnect_client)
+            d.addErrback(log_failure, "disconnect client")
+        d.addBoth(stop_reactor)
 
     def load_window_state(self):
         x = self.config["window_x_pos"]
@@ -185,7 +206,7 @@ class MainWindow(component.Component):
             if event.new_window_state & gtk.gdk.WINDOW_STATE_MAXIMIZED:
                 log.debug("pos: %s", self.window.get_position())
                 self.config["window_maximized"] = True
-            else:
+            elif not event.new_window_state & gtk.gdk.WINDOW_STATE_WITHDRAWN:
                 self.config["window_maximized"] = False
         if event.changed_mask & gtk.gdk.WINDOW_STATE_ICONIFIED:
             if event.new_window_state & gtk.gdk.WINDOW_STATE_ICONIFIED:
@@ -215,10 +236,11 @@ class MainWindow(component.Component):
         self.config["window_pane_position"] = self.vpaned.get_position()
 
     def on_drag_data_received_event(self, widget, drag_context, x, y, selection_data, info, timestamp):
-        args = []
-        for uri in selection_data.data.split():
-            args.append(urllib.unquote(uri))
-        process_args(args)
+        log.debug("Selection(s) dropped on main window %s", selection_data.data)
+        if selection_data.get_uris():
+            process_args(selection_data.get_uris())
+        else:
+            process_args(selection_data.data.split())
         drag_context.finish(True, True)
 
     def on_expose_event(self, widget, event):
@@ -230,11 +252,11 @@ class MainWindow(component.Component):
     def update(self):
         # Update the window title
         def _on_get_session_status(status):
-            download_rate = deluge.common.fspeed(status["download_rate"])
-            upload_rate = deluge.common.fspeed(status["upload_rate"])
-            self.window.set_title("Deluge - %s %s %s %s" % (_("Down:"), download_rate, _("Up:"), upload_rate))
+            download_rate = deluge.common.fsize_short(status["payload_download_rate"])
+            upload_rate = deluge.common.fsize_short(status["payload_upload_rate"])
+            self.window.set_title("%s%s %s%s - Deluge" % (_("D:"), download_rate, _("U:"), upload_rate))
         if self.config["show_rate_in_title"]:
-            client.core.get_session_status(["download_rate", "upload_rate"]).addCallback(_on_get_session_status)
+            client.core.get_session_status(["payload_download_rate", "payload_upload_rate"]).addCallback(_on_get_session_status)
 
     def _on_set_show_rate_in_title(self, key, value):
         if value:

@@ -37,12 +37,14 @@
 import sys
 import os
 import base64
+from urllib import url2pathname
+from urlparse import urlparse
 
 try:
     import rencode
 except ImportError:
     import deluge.rencode as rencode
-    
+
 import deluge.component as component
 from deluge.ui.client import client
 import deluge.common
@@ -62,11 +64,11 @@ class IPCProtocolClient(Protocol):
     def connectionMade(self):
         self.transport.write(rencode.dumps(self.factory.args))
         self.transport.loseConnection()
-        
+
     def connectionLost(self, reason):
         reactor.stop()
         self.factory.stop = True
-        
+
 class IPCClientFactory(ClientFactory):
     protocol = IPCProtocolClient
 
@@ -74,11 +76,11 @@ class IPCClientFactory(ClientFactory):
         self.stop = False
         self.args = args
         self.connect_failed = connect_failed
-        
+
     def clientConnectionFailed(self, connector, reason):
         log.info("Connection to running instance failed.  Starting new one..")
         reactor.stop()
-    
+
 class IPCInterface(component.Component):
     def __init__(self, args):
         component.Component.__init__(self, "IPCInterface")
@@ -149,14 +151,14 @@ class IPCInterface(component.Component):
     def connect_failed(self, args):
         # This gets called when we're unable to do a connectUNIX to the ipc
         # socket.  We'll delete the lock and socket files and start up Deluge.
-        #reactor.stop()
+
         socket = os.path.join(deluge.configmanager.get_config_dir("ipc"), "deluge-gtk")
         if os.path.exists(socket):
             try:
                 os.remove(socket)
             except Exception, e:
                 log.error("Unable to remove socket file: %s", e)
-                
+
         lock = socket + ".lock"
         if os.path.lexists(lock):
             try:
@@ -171,7 +173,7 @@ class IPCInterface(component.Component):
             log.error("Unable to start IPC listening socket: %s", e)
         finally:
             process_args(args)
-        
+
     def shutdown(self):
         if deluge.common.windows_check():
             import win32api
@@ -188,29 +190,34 @@ def process_args(args):
         component.get("QueuedTorrents").add_to_queue(args)
         return
     config = ConfigManager("gtkui.conf")
+
     for arg in args:
         if not arg.strip():
             continue
         log.debug("arg: %s", arg)
+
         if deluge.common.is_url(arg):
-            log.debug("Attempting to add %s from external source..",
-                arg)
+            log.debug("Attempting to add url (%s) from external source...", arg)
             if config["interactive_add"]:
                 component.get("AddTorrentDialog").add_from_url(arg)
                 component.get("AddTorrentDialog").show(config["focus_add_dialog"])
             else:
                 client.core.add_torrent_url(arg, None)
+
         elif deluge.common.is_magnet(arg):
-            log.debug("Attempting to add %s from external source..", arg)
+            log.debug("Attempting to add magnet (%s) from external source...", arg)
             if config["interactive_add"]:
                 component.get("AddTorrentDialog").add_from_magnets([arg])
                 component.get("AddTorrentDialog").show(config["focus_add_dialog"])
             else:
                 client.core.add_torrent_magnet(arg, {})
+
         else:
-            # Just a file
-            path = os.path.abspath(arg.replace('file://', '', 1))
-            log.debug("Attempting to add %s from external source..", path)
+            log.debug("Attempting to add file (%s) from external source...", arg)
+            if urlparse(arg).scheme == "file":
+                arg = url2pathname(urlparse(arg).path)
+            path = os.path.abspath(arg)
+
             if not os.path.exists(path):
                 log.error("No such file: %s", path)
                 continue
