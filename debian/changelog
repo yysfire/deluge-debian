@@ -1,3 +1,10 @@
+deluge (1.3.6-1) unstable; urgency=low
+
+  * New upstream version 1.3.6
+  * Remove patch 0002-Supports-seeding-mode-to-Skip-Hash-Check of v1.3.5
+
+ -- yysfire <yysfire@github.com>  Tue, 12 Mar 2013 23:42:30 +0800
+
 deluge (1.3.5-1+yys1) unstable; urgency=low
 
   * Supports seeding mode to Skip Hash Check
