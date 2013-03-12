@@ -65,11 +65,11 @@ class SessionProxy(component.Component):
         # Holds the time of the last key update.. {torrent_id: {key1, time, ...}, ...}
         self.cache_times = {}
 
+    def start(self):
         client.register_event_handler("TorrentStateChangedEvent", self.on_torrent_state_changed)
         client.register_event_handler("TorrentRemovedEvent", self.on_torrent_removed)
         client.register_event_handler("TorrentAddedEvent", self.on_torrent_added)
 
-    def start(self):
         def on_torrent_status(status):
             # Save the time we got the torrent status
             t = time.time()
@@ -102,10 +102,16 @@ class SessionProxy(component.Component):
         """
         sd = {}
         for torrent_id in torrent_ids:
-            if keys:
-                sd[torrent_id] = dict([(x, y) for x, y in self.torrents[torrent_id][1].iteritems() if x in keys])
-            else:
-                sd[torrent_id] = dict(self.torrents[torrent_id][1])
+            try:
+                if keys:
+                    sd[torrent_id] = dict([
+                        (x, y) for x, y in self.torrents[torrent_id][1].iteritems()
+                        if x in keys
+                    ])
+                else:
+                    sd[torrent_id] = dict(self.torrents[torrent_id][1])
+            except KeyError:
+                continue
 
         return sd
 
@@ -129,7 +135,7 @@ class SessionProxy(component.Component):
                 keys = self.torrents[torrent_id][1].keys()
 
             for key in keys:
-                if time.time() - self.cache_times[torrent_id][key] > self.cache_time:
+                if time.time() - self.cache_times[torrent_id].get(key, 0.0) > self.cache_time:
                     keys_to_get.append(key)
 
             if not keys_to_get:
@@ -179,10 +185,14 @@ class SessionProxy(component.Component):
             # Update the internal torrent status dict with the update values
             t = time.time()
             for key, value in result.items():
-                self.torrents[key][0] = t
-                self.torrents[key][1].update(value)
-                for k in value:
-                    self.cache_times[key][k] = t
+                try:
+                    self.torrents[key][0] = t
+                    self.torrents[key][1].update(value)
+                    for k in value:
+                        self.cache_times[key][k] = t
+                except KeyError:
+                    #The torrent was removed
+                    continue
 
             # Create the status dict
             if not torrent_ids:

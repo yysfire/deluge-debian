@@ -116,24 +116,29 @@ def cell_data_statusicon(column, cell, model, row, data):
 
 def cell_data_trackericon(column, cell, model, row, data):
     def on_get_icon(icon):
-        def create_blank_icon():
+        def create_blank_pixbuf():
             i = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB, True, 8, 16, 16)
             i.fill(0x00000000)
             return i
 
         if icon:
-            try:
-                icon = gtk.gdk.pixbuf_new_from_file_at_size(icon.get_filename(), 16, 16)
-            except Exception, e:
-                icon = create_blank_icon()
+            pixbuf = icon.get_cached_icon()
+            if not pixbuf:
+                try:
+                    pixbuf = gtk.gdk.pixbuf_new_from_file_at_size(icon.get_filename(), 16, 16)
+                except gobject.GError, e:
+                    # Failed to load the pixbuf (Bad image file), so set a blank pixbuf
+                    pixbuf = create_blank_pixbuf()
+                finally:
+                    icon.set_cached_icon(pixbuf)
         else:
-            icon = create_blank_icon()
+            pixbuf = create_blank_pixbuf()
 
         #Supress Warning: g_object_set_qdata: assertion `G_IS_OBJECT (object)' failed
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            if cell.get_property("pixbuf") != icon:
-                cell.set_property("pixbuf", icon)
+            if cell.get_property("pixbuf") != pixbuf:
+                cell.set_property("pixbuf", pixbuf)
 
     host = model[row][data]
     if host:
@@ -406,14 +411,17 @@ class TorrentView(listview.ListView, component.Component):
         filter_column = self.columns["filter"].column_indices[0]
         # Update the torrent view model with data we've received
         status = self.status
+        status_keys = status.keys()
 
         for row in self.liststore:
             torrent_id = row[self.columns["torrent_id"].column_indices[0]]
 
-            if not torrent_id in status.keys():
-                row[filter_column] = False
+            if not torrent_id in status_keys:
+                if row[filter_column] is True:
+                    row[filter_column] = False
             else:
-                row[filter_column] = True
+                if row[filter_column] is False:
+                    row[filter_column] = True
                 if torrent_id in self.prev_status and status[torrent_id] == self.prev_status[torrent_id]:
                     # The status dict is the same, so do not update
                     continue
@@ -516,7 +524,7 @@ class TorrentView(listview.ListView, component.Component):
                 return []
 
             return torrent_ids
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return []
 
     def get_torrent_status(self, torrent_id):

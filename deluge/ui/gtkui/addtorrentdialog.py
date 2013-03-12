@@ -78,7 +78,8 @@ class AddTorrentDialog(component.Component):
             "on_button_cancel_clicked": self._on_button_cancel_clicked,
             "on_button_add_clicked": self._on_button_add_clicked,
             "on_button_apply_clicked": self._on_button_apply_clicked,
-            "on_button_revert_clicked": self._on_button_revert_clicked
+            "on_button_revert_clicked": self._on_button_revert_clicked,
+            "on_chk_move_completed_toggled": self._on_chk_move_completed_toggled
         })
 
         self.torrent_liststore = gtk.ListStore(str, str, str)
@@ -142,7 +143,9 @@ class AddTorrentDialog(component.Component):
             "max_download_speed_per_torrent",
             "prioritize_first_last_pieces",
             "download_location",
-            "add_paused"
+            "add_paused",
+            "move_completed",
+            "move_completed_path"
         ]
         self.core_config = {}
 
@@ -158,11 +161,19 @@ class AddTorrentDialog(component.Component):
         if client.is_localhost():
             self.glade.get_widget("button_location").show()
             self.glade.get_widget("entry_download_path").hide()
+            self.glade.get_widget("button_move_completed_location").show()
+            self.glade.get_widget("entry_move_completed_path").hide()
         else:
             self.glade.get_widget("button_location").hide()
             self.glade.get_widget("entry_download_path").show()
+            self.glade.get_widget("button_move_completed_location").hide()
+            self.glade.get_widget("entry_move_completed_path").show()
 
-        self.dialog.set_transient_for(component.get("MainWindow").window)
+        if component.get("MainWindow").is_on_active_workspace():
+            self.dialog.set_transient_for(component.get("MainWindow").window)
+        else:
+            self.dialog.set_transient_for(None)
+
         self.dialog.present()
         if focus:
             self.dialog.window.focus()
@@ -366,9 +377,13 @@ class AddTorrentDialog(component.Component):
         if client.is_localhost():
             self.glade.get_widget("button_location").set_current_folder(
                 options["download_location"])
+            self.glade.get_widget("button_move_completed_location").set_current_folder(
+                options["move_completed_path"])
         else:
             self.glade.get_widget("entry_download_path").set_text(
                 options["download_location"])
+            self.glade.get_widget("entry_move_completed_path").set_text(
+                options["move_completed_path"])
 
         self.glade.get_widget("radio_full").set_active(
             not options["compact_allocation"])
@@ -386,6 +401,8 @@ class AddTorrentDialog(component.Component):
             options["add_paused"])
         self.glade.get_widget("chk_prioritize").set_active(
             options["prioritize_first_last_pieces"])
+        self.glade.get_widget("chk_move_completed").set_active(
+            options["move_completed"])
 
     def save_torrent_options(self, row=None):
         # Keeps the torrent options dictionary up-to-date with what the user has
@@ -405,10 +422,14 @@ class AddTorrentDialog(component.Component):
 
         if client.is_localhost():
             options["download_location"] = \
-                self.glade.get_widget("button_location").get_current_folder()
+                self.glade.get_widget("button_location").get_filename()
+            options["move_completed_path"] = \
+                self.glade.get_widget("button_move_completed_location").get_filename()
         else:
             options["download_location"] = \
                 self.glade.get_widget("entry_download_path").get_text()
+            options["move_completed_path"] = \
+                self.glade.get_widget("entry_move_completed_path").get_text()
         options["compact_allocation"] = \
             self.glade.get_widget("radio_compact").get_active()
 
@@ -431,6 +452,8 @@ class AddTorrentDialog(component.Component):
             self.glade.get_widget("chk_paused").get_active()
         options["prioritize_first_last_pieces"] = \
             self.glade.get_widget("chk_prioritize").get_active()
+        options["move_completed"] = \
+            self.glade.get_widget("chk_move_completed").get_active()
 
         self.options[torrent_id] = options
 
@@ -456,9 +479,15 @@ class AddTorrentDialog(component.Component):
         if client.is_localhost():
             self.glade.get_widget("button_location").set_current_folder(
                 self.core_config["download_location"])
+            self.glade.get_widget("button_move_completed_location").set_current_folder(
+                self.core_config["move_completed_path"]
+            )
         else:
             self.glade.get_widget("entry_download_path").set_text(
                 self.core_config["download_location"])
+            self.glade.get_widget("entry_move_completed_path").set_text(
+                self.core_config["move_completed_path"]
+            )
 
         self.glade.get_widget("radio_compact").set_active(
             self.core_config["compact_allocation"])
@@ -476,6 +505,8 @@ class AddTorrentDialog(component.Component):
             self.core_config["add_paused"])
         self.glade.get_widget("chk_prioritize").set_active(
             self.core_config["prioritize_first_last_pieces"])
+        self.glade.get_widget("chk_move_completed").set_active(
+            self.core_config["move_completed"])
 
     def get_file_priorities(self, torrent_id):
         # A list of priorities
@@ -599,7 +630,11 @@ class AddTorrentDialog(component.Component):
             import win32clipboard as clip
             import win32con
             clip.OpenClipboard()
-            text = clip.GetClipboardData(win32con.CF_UNICODETEXT)
+            try:
+                text = clip.GetClipboardData(win32con.CF_UNICODETEXT)
+            except TypeError:
+                # Catch empty clipboard error
+                text = ''
             clip.CloseClipboard()
         else:
             clip = gtk.clipboard_get(selection='PRIMARY')
@@ -644,8 +679,7 @@ class AddTorrentDialog(component.Component):
 
         # Create a tmp file path
         import tempfile
-        import os.path
-        tmp_file = os.path.join(tempfile.gettempdir(), url.split("/")[-1])
+        (tmp_handle, tmp_file) = tempfile.mkstemp()
 
         def on_part(data, current_length, total_length):
             if total_length:
@@ -774,14 +808,15 @@ class AddTorrentDialog(component.Component):
 
         self.save_torrent_options(row)
 
-        # The options we want all the torrents to have
-        options = self.options[model.get_value(row, 0)]
+        # The options, except file renames, we want all the torrents to have
+        options = self.options[model.get_value(row, 0)].copy()
+        options.pop("mapped_files", None)
 
         # Set all the torrent options
         row = model.get_iter_first()
         while row != None:
             torrent_id = model.get_value(row, 0)
-            self.options[torrent_id] = options
+            self.options[torrent_id].update(options)
             row = model.iter_next(row)
 
     def _on_button_revert_clicked(self, widget):
@@ -792,6 +827,11 @@ class AddTorrentDialog(component.Component):
 
         del self.options[model.get_value(row, 0)]
         self.set_default_options()
+
+    def _on_chk_move_completed_toggled(self, widget):
+        value = widget.get_active()
+        self.glade.get_widget("button_move_completed_location").set_sensitive(value)
+        self.glade.get_widget("entry_move_completed_path").set_sensitive(value)
 
     def _on_delete_event(self, widget, event):
         self.hide()
@@ -807,7 +847,7 @@ class AddTorrentDialog(component.Component):
     def _on_filename_edited(self, renderer, path, new_text):
         index = self.files_treestore[path][3]
 
-        new_text = new_text.strip(os.path.sep)
+        new_text = new_text.strip(os.path.sep).strip()
 
         # Return if the text hasn't changed
         if new_text == self.files_treestore[path][1]:
@@ -825,9 +865,15 @@ class AddTorrentDialog(component.Component):
 
         if index > -1:
             # We're renaming a file! Yay! That's easy!
+            if not new_text:
+                return
             parent = self.files_treestore.iter_parent(itr)
             file_path = os.path.join(self.get_file_path(parent), new_text)
-
+            # Don't rename if filename exists
+            if parent:
+                for row in self.files_treestore[parent].iterchildren():
+                    if new_text == row[1]:
+                        return
             if os.path.sep in new_text:
                 # There are folders in this path, so we need to create them
                 # and then move the file iter to top

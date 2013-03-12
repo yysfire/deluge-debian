@@ -160,24 +160,25 @@ class ConsoleUI(component.Component):
         # Set the interactive flag to indicate where we should print the output
         self.interactive = True
         if args:
-            args = ' '.join(args)
+            # Multiple commands split by ";"
+            commands = [arg.strip() for arg in ' '.join(args).split(';')]
             self.interactive = False
 
-        # Try to connect to the localhost daemon
+        # Try to connect to the daemon (localhost by default)
         def on_connect(result):
             def on_started(result):
                 if not self.interactive:
                     def on_started(result):
-                        deferreds = []
-                        # If we have args, lets process them and quit
-                        # allow multiple commands split by ";"
-                        for arg in args.split(";"):
-                            deferreds.append(defer.maybeDeferred(self.do_command, arg.strip()))
+                        def do_command(result, cmd):
+                            return self.do_command(cmd)
 
-                        def on_complete(result):
-                            self.do_command("quit")
+                        d = defer.succeed(None)
+                        # If we have commands, lets process them, then quit.
+                        for command in commands:
+                            d.addCallback(do_command, command)
 
-                        dl = defer.DeferredList(deferreds).addCallback(on_complete)
+                        if "quit" not in commands and "exit" not in commands:
+                            d.addCallback(do_command, "quit")
 
                     # We need to wait for the rpcs in start() to finish before processing
                     # any of the commands.
@@ -185,8 +186,17 @@ class ConsoleUI(component.Component):
             component.start().addCallback(on_started)
 
         def on_connect_fail(result):
-            pass
-        d = client.connect()
+            if not self.interactive:
+                self.do_command('quit')
+
+        connect_cmd = 'connect'
+        if not self.interactive:
+            if commands[0].startswith(connect_cmd):
+                connect_cmd = commands.pop(0)
+            elif 'help' in commands:
+                self.do_command('help')
+                return
+        d = self.do_command(connect_cmd)
         d.addCallback(on_connect)
         d.addErrback(on_connect_fail)
 
@@ -278,7 +288,7 @@ Please use commands from the command line, eg:\n
         if self.interactive:
             self.screen.add_line(line, not self.batch_write)
         else:
-            print(colors.strip_colors(line.encode("utf-8")))
+            print colors.strip_colors(line.encode("utf-8"))
 
     def do_command(self, cmd):
         """
@@ -295,7 +305,12 @@ Please use commands from the command line, eg:\n
         except KeyError:
             self.write("{!error!}Unknown command: %s" % cmd)
             return
-        args = self._commands[cmd].split(line)
+
+        try:
+            args = self._commands[cmd].split(line)
+        except ValueError, e:
+            self.write("{!error!}Error parsing command: %s" % e)
+            return
 
         # Do a little hack here to print 'command --help' properly
         parser._print_help = parser.print_help

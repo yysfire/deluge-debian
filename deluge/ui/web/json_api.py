@@ -115,54 +115,55 @@ class JSON(resource.Resource, component.Component):
         self._remote_methods = []
         self._local_methods = {}
         if client.is_classicmode():
-            def on_got_methods(methods):
-                """
-                Handles receiving the method names
-                """
-                self._remote_methods = methods
-
-            client.daemon.get_method_list().addCallback(on_got_methods)
+            self.get_remote_methods()
         else:
             client.disconnect_callback = self._on_client_disconnect
+
+    def on_get_methods(self, methods):
+        """
+        Handles receiving the method names.
+        """
+        self._remote_methods = methods
+
+    def get_remote_methods(self, result=None):
+        """
+        Updates remote methods from the daemon.
+        """
+        return client.daemon.get_method_list().addCallback(self.on_get_methods)
 
     def connect(self, host="localhost", port=58846, username="", password=""):
         """
         Connects the client to a daemon
         """
-        d = Deferred()
-        _d = client.connect(host, port, username, password)
-
-        def on_get_methods(methods):
-            """
-            Handles receiving the method names
-            """
-            self._remote_methods = methods
-            methods = list(self._remote_methods)
-            methods.extend(self._local_methods)
-            d.callback(methods)
+        d = client.connect(host, port, username, password)
 
         def on_client_connected(connection_id):
             """
             Handles the client successfully connecting to the daemon and
             invokes retrieving the method names.
             """
-            d = client.daemon.get_method_list()
-            d.addCallback(on_get_methods)
+            d = self.get_remote_methods()
             component.get("Web.PluginManager").start()
             component.get("Web").start()
-        _d.addCallback(on_client_connected)
-        return d
+            return d
+
+        return d.addCallback(on_client_connected)
 
     def disable(self):
         if not client.is_classicmode():
             client.disconnect()
 
     def enable(self):
+        client.register_event_handler("PluginEnabledEvent", self.get_remote_methods)
+        client.register_event_handler("PluginDisabledEvent", self.get_remote_methods)
         if component.get("DelugeWeb").config["default_daemon"]:
             # Sort out getting the default daemon here
             default = component.get("DelugeWeb").config["default_daemon"]
             host = component.get("Web").get_host(default)
-            self.connect()
+            if host:
+                self.connect(*host[1:])
+            else:
+                self.connect()
 
     def _on_client_disconnect(self, *args):
         component.get("Web.PluginManager").stop()
@@ -661,7 +662,8 @@ class WebApi(JSONComponent):
                 log.error("Reason: %s", result.getErrorMessage())
             return result
 
-        tmp_file = os.path.join(tempfile.gettempdir(), url.split("/")[-1])
+        tempdir = tempfile.mkdtemp(prefix="delugeweb-")
+        tmp_file = os.path.join(tempdir, url.split("/")[-1])
         log.debug("filename: %s", tmp_file)
         headers = {}
         if cookie:
@@ -718,24 +720,29 @@ class WebApi(JSONComponent):
 
         :rtype: dictionary
         """
-        try:
-            s = uri.split("&")[0][20:]
-            if len(s) == 32:
-                info_hash = base64.b32decode(s).encode("hex")
-            elif len(s) == 40:
-                info_hash = s
-            else:
-                return False
+        magnet_scheme = 'magnet:?'
+        xt_param = 'xt=urn:btih:'
+        dn_param = 'dn='
+        if uri.startswith(magnet_scheme):
             name = None
-            for i in uri.split("&")[1:]:
-                if i[:3] == "dn=":
-                    name = unquote_plus(i.split("=")[1])
-            if not name:
-                name = info_hash
-            return {"name":name, "info_hash":info_hash, "files_tree":''}
-        except Exception, e:
-            log.exception(e)
-            return False
+            info_hash = None
+            for param in uri[len(magnet_scheme):].split('&'):
+                if param.startswith(xt_param):
+                    xt_hash = param[len(xt_param):]
+                    if len(xt_hash) == 32:
+                        info_hash = base64.b32decode(xt_hash).encode("hex")
+                    elif len(xt_hash) == 40:
+                        info_hash = xt_hash
+                    else:
+                        break
+                elif param.startswith(dn_param):
+                    name = unquote_plus(param[len(dn_param):])
+
+            if info_hash:
+                if not name:
+                    name = info_hash
+                return {"name":name, "info_hash":info_hash, "files_tree":''}
+        return False
 
     @export
     def add_torrents(self, torrents):
@@ -750,7 +757,7 @@ class WebApi(JSONComponent):
 
         >>> json_api.web.add_torrents([{
                 "path": "/tmp/deluge-web/some-torrent-file.torrent",
-                "options": {"download_path": "/home/deluge/"}
+                "options": {"download_location": "/home/deluge/"}
             }])
 
         """

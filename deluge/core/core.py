@@ -84,7 +84,10 @@ class Core(component.Component):
         while len(version) < 4:
             version.append(0)
 
-        self.session = lt.session(lt.fingerprint("DE", *version), flags=0)
+        # Note: All libtorrent python bindings to set plugins/extensions need to be disabled
+        # due to  GIL issue. https://code.google.com/p/libtorrent/issues/detail?id=369
+        # Setting session flags to 1 enables all libtorrent default plugins
+        self.session = lt.session(lt.fingerprint("DE", *version), flags=1)
 
         # Load the session state if available
         self.__load_session_state()
@@ -92,6 +95,8 @@ class Core(component.Component):
         # Set the user agent
         self.settings = lt.session_settings()
         self.settings.user_agent = "Deluge %s" % deluge.common.get_version()
+        # Increase the alert queue size so that alerts don't get lost
+        self.settings.alert_queue_size = 10000
 
         # Set session settings
         self.settings.send_redundant_have = True
@@ -103,9 +108,11 @@ class Core(component.Component):
         self.session.set_settings(self.settings)
 
         # Load metadata extension
-        self.session.add_extension(lt.create_metadata_plugin)
-        self.session.add_extension(lt.create_ut_metadata_plugin)
-        self.session.add_extension(lt.create_smart_ban_plugin)
+        # Note: All libtorrent python bindings to set plugins/extensions need to be disabled
+        # due to  GIL issue. https://code.google.com/p/libtorrent/issues/detail?id=369
+        # self.session.add_extension(lt.create_metadata_plugin)
+        # self.session.add_extension(lt.create_ut_metadata_plugin)
+        # self.session.add_extension(lt.create_smart_ban_plugin)
 
         # Create the components
         self.eventmanager = EventManager()
@@ -414,7 +421,11 @@ class Core(component.Component):
     @export
     def get_torrent_status(self, torrent_id, keys, diff=False):
         # Build the status dictionary
-        status = self.torrentmanager[torrent_id].get_status(keys, diff)
+        try:
+            status = self.torrentmanager[torrent_id].get_status(keys, diff)
+        except KeyError:
+            # Torrent was probaly removed meanwhile
+            return {}
 
         # Get the leftover fields and ask the plugin manager to fill them
         leftover_fields = list(set(keys) - set(status.keys()))

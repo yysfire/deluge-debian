@@ -253,11 +253,10 @@ class GtkUI(GtkPluginBase):
         self.create_columns(self.treeView)
         sw.add(self.treeView)
         sw.show_all()
-        component.get("Preferences").add_page("AutoAdd", self.glade.get_widget("prefs_box"))
-        self.on_show_prefs()
+        component.get("Preferences").add_page(_("AutoAdd"), self.glade.get_widget("prefs_box"))
 
     def disable(self):
-        component.get("Preferences").remove_page("AutoAdd")
+        component.get("Preferences").remove_page(_("AutoAdd"))
         component.get("PluginManager").deregister_hook("on_apply_prefs", self.on_apply_prefs)
         component.get("PluginManager").deregister_hook("on_show_prefs", self.on_show_prefs)
 
