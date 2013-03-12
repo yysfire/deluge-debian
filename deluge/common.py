@@ -42,11 +42,17 @@ import subprocess
 import platform
 import sys
 import chardet
+import pkg_resources
+import gettext
+import locale
 
 try:
     import json
 except ImportError:
     import simplejson as json
+
+from deluge.error import *
+from deluge.log import LOG as log
 
 # Do a little hack here just in case the user has json-py installed since it
 # has a different api
@@ -63,10 +69,6 @@ if not hasattr(json, "dumps"):
     json.dump = dump
     json.load = load
 
-import pkg_resources
-import gettext
-import locale
-
 # Initialize gettext
 try:
     if hasattr(locale, "bindtextdomain"):
@@ -75,13 +77,10 @@ try:
         locale.textdomain("deluge")
     gettext.install("deluge", pkg_resources.resource_filename("deluge", "i18n"), unicode=True)
 except Exception, e:
-    from deluge.log import LOG as log
     log.error("Unable to initialize gettext/locale!")
     log.exception(e)
     import __builtin__
     __builtin__.__dict__["_"] = lambda x: x
-
-from deluge.error import *
 
 LT_TORRENT_STATE = {
     "Queued": 0,
@@ -101,7 +100,6 @@ LT_TORRENT_STATE = {
     6: "Allocating",
     7: "Checking Resume Data"
 }
-
 
 TORRENT_STATE = [
     "Allocating",
@@ -159,11 +157,15 @@ def get_default_config_dir(filename=None):
         else:
             return os.path.join(appDataPath, "deluge")
     else:
-        import xdg.BaseDirectory
-        if filename:
-            return os.path.join(xdg.BaseDirectory.save_config_path("deluge"), filename)
-        else:
-            return xdg.BaseDirectory.save_config_path("deluge")
+        from xdg.BaseDirectory import save_config_path
+        try:
+            if filename:
+                return os.path.join(save_config_path("deluge"), filename)
+            else:
+                return save_config_path("deluge")
+        except OSError, e:
+            log.error("Unable to use default config directory, exiting... (%s)", e)
+            sys.exit(1)
 
 def get_default_download_dir():
     """
@@ -240,7 +242,9 @@ def open_file(path):
 
     """
     if windows_check():
-        os.startfile("%s" % path)
+        os.startfile(path.decode("utf8"))
+    elif osx_check():
+        subprocess.Popen(["open", "%s" % path])
     else:
         subprocess.Popen(["xdg-open", "%s" % path])
 
@@ -455,7 +459,9 @@ def is_magnet(uri):
     True
 
     """
-    if uri[:20] == "magnet:?xt=urn:btih:":
+    magnet_scheme = 'magnet:?'
+    xt_param = 'xt=urn:btih:'
+    if uri.startswith(magnet_scheme) and xt_param in uri:
         return True
     return False
 
@@ -523,9 +529,8 @@ def free_space(path):
         raise InvalidPathError("%s is not a valid path" % path)
 
     if windows_check():
-        import win32file
-        sectors, bytes, free, total = map(long, win32file.GetDiskFreeSpace(path))
-        return (free * sectors * bytes)
+        from win32file import GetDiskFreeSpaceEx
+        return GetDiskFreeSpaceEx(path)[0]
     else:
         disk_data = os.statvfs(path.encode("utf8"))
         block_size = disk_data.f_frsize
@@ -549,15 +554,23 @@ def is_ip(ip):
     import socket
     #first we test ipv4
     try:
-        if socket.inet_pton(socket.AF_INET, "%s" % (ip)):
-            return True
+        if windows_check():
+            if socket.inet_aton("%s" % (ip)):
+                return True
+        else:
+            if socket.inet_pton(socket.AF_INET, "%s" % (ip)):
+                return True
     except socket.error:
         if not socket.has_ipv6:
             return False
     #now test ipv6
     try:
-        if socket.inet_pton(socket.AF_INET6, "%s" % (ip)):
+        if windows_check():
+            log.warning("ipv6 check unavailable on windows")
             return True
+        else:
+            if socket.inet_pton(socket.AF_INET6, "%s" % (ip)):
+                return True
     except socket.error:
         return False
 

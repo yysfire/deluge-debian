@@ -81,7 +81,8 @@ class Preferences(component.Component):
             i += 1
 
         # Setup plugin tab listview
-        self.plugin_liststore = gtk.ListStore(str, bool)
+        # The third entry is for holding translated plugin names
+        self.plugin_liststore = gtk.ListStore(str, bool, str)
         self.plugin_liststore.set_sort_column_id(0, gtk.SORT_ASCENDING)
         self.plugin_listview = self.glade.get_widget("plugin_listview")
         self.plugin_listview.set_model(self.plugin_liststore)
@@ -91,7 +92,7 @@ class Preferences(component.Component):
         self.plugin_listview.append_column(
             gtk.TreeViewColumn(_("Enabled"), render, active=1))
         self.plugin_listview.append_column(
-            gtk.TreeViewColumn(_("Plugin"), gtk.CellRendererText(), text=0))
+            gtk.TreeViewColumn(_("Plugin"), gtk.CellRendererText(), text=2))
 
         # Connect to the 'changed' event of TreeViewSelection to get selection
         # changes.
@@ -479,6 +480,8 @@ class Preferences(component.Component):
             self.gtkui_config["classic_mode"])
         self.glade.get_widget("chk_show_rate_in_title").set_active(
             self.gtkui_config["show_rate_in_title"])
+        self.glade.get_widget("chk_focus_main_window_on_add").set_active(
+            self.gtkui_config["focus_main_window_on_add"])
 
         ## Other tab ##
         self.glade.get_widget("chk_show_new_releases").set_active(
@@ -503,6 +506,7 @@ class Preferences(component.Component):
             row = self.plugin_liststore.append()
             self.plugin_liststore.set_value(row, 0, plugin)
             self.plugin_liststore.set_value(row, 1, enabled)
+            self.plugin_liststore.set_value(row, 2, _(plugin))
 
         # Now show the dialog
         self.pref_dialog.show()
@@ -651,6 +655,8 @@ class Preferences(component.Component):
             self.glade.get_widget("chk_classic_mode").get_active()
         new_gtkui_config["show_rate_in_title"] = \
             self.glade.get_widget("chk_show_rate_in_title").get_active()
+        new_gtkui_config["focus_main_window_on_add"] = \
+            self.glade.get_widget("chk_focus_main_window_on_add").get_active()
 
         ## Other tab ##
         new_gtkui_config["show_new_releases"] = \
@@ -746,6 +752,22 @@ class Preferences(component.Component):
         else:
             # Re-show the dialog to make sure everything has been updated
             self.show()
+
+        if client.is_classicmode() != new_gtkui_config["classic_mode"]:
+            dialog = gtk.MessageDialog(
+                flags=gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
+                type=gtk.MESSAGE_QUESTION,
+                buttons=gtk.BUTTONS_YES_NO,
+                message_format=_("You must restart the deluge UI to change classic mode. Quit now?")
+            )
+            result = dialog.run()
+            if result == gtk.RESPONSE_YES:
+                shutdown_daemon = (not client.is_classicmode() and
+                                   client.connected() and
+                                   client.is_localhost())
+                component.get("MainWindow").quit(shutdown=shutdown_daemon)
+            dialog.destroy()
+
 
     def hide(self):
         self.glade.get_widget("port_img").hide()

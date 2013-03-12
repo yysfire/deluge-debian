@@ -39,7 +39,12 @@ from urlparse import urljoin, urlparse
 from tempfile import mkstemp
 
 from twisted.internet import defer, threads
-from twisted.web import error
+from twisted.web.error import PageRedirect
+try:
+    from twisted.web.resource import NoResource, ForbiddenResource
+except ImportError:
+    # twisted 8
+    from twisted.web.error import NoResource, ForbiddenResource
 
 from deluge.component import Component
 from deluge.configmanager import get_config_dir
@@ -69,6 +74,7 @@ class TrackerIcon(object):
         self.filename = os.path.abspath(filename)
         self.mimetype = extension_to_mimetype(self.filename.rpartition('.')[2])
         self.data = None
+        self.icon_cache = None
 
     def __eq__(self, other):
         """
@@ -116,6 +122,20 @@ class TrackerIcon(object):
         :rtype: string
         """
         return self.filename if full else os.path.basename(self.filename)
+
+    def set_cached_icon(self, data):
+        """
+        Set the cached icon data.
+
+        """
+        self.icon_cache = data
+
+    def get_cached_icon(self):
+        """
+        Returns the cached icon data.
+
+        """
+        return self.icon_cache
 
 class TrackerIcons(Component):
     """
@@ -205,7 +225,7 @@ class TrackerIcons(Component):
         """
         if not url:
             url = self.host_to_url(host)
-        log.debug("Downloading %s", url)
+        log.debug("Downloading %s %s", host, url)
         return download_file(url, mkstemp()[1], force_filename=True)
 
     def on_download_page_complete(self, page):
@@ -235,7 +255,7 @@ class TrackerIcons(Component):
         error_msg = f.getErrorMessage()
         log.debug("Error downloading page: %s", error_msg)
         d = f
-        if f.check(error.PageRedirect):
+        if f.check(PageRedirect):
             # Handle redirect errors
             location = urljoin(self.host_to_url(host), error_msg.split(" to ")[1])
             self.redirects[host] = url_to_host(location)
@@ -267,6 +287,7 @@ class TrackerIcons(Component):
             os.remove(page)
         except Exception, e:
             log.warning("Couldn't remove temp file: %s", e)
+
         return parser.get_icons()
 
     def on_parse_complete(self, icons, host):
@@ -280,10 +301,10 @@ class TrackerIcons(Component):
         :returns: the icons that were extracted from the page
         :rtype: list
         """
-        log.debug("Got icons for %s: %s", host, icons)
+        log.debug("Parse Complete, got icons for %s: %s", host, icons)
         url = self.host_to_url(host)
         icons = [(urljoin(url, icon), mimetype) for icon, mimetype in icons]
-        log.debug("Icon urls: %s", icons)
+        log.debug("Icon urls from %s: %s", host, icons)
         return icons
 
     def on_parse_fail(self, f):
@@ -354,7 +375,7 @@ class TrackerIcons(Component):
         :returns: the icon that finished downloading
         :rtype: TrackerIcon
         """
-        log.debug("Successfully downloaded: %s", icon_name)
+        log.debug("Successfully downloaded from %s: %s", host, icon_name)
         icon = TrackerIcon(icon_name)
         return icon
 
@@ -373,16 +394,16 @@ class TrackerIcons(Component):
         :rtype: Deferred or Failure
         """
         error_msg = f.getErrorMessage()
-        log.debug("Error downloading icon: %s", error_msg)
+        log.debug("Error downloading icon from %s: %s", host, error_msg)
         d = f
-        if f.check(error.PageRedirect):
+        if f.check(PageRedirect):
             # Handle redirect errors
             location = urljoin(self.host_to_url(host), error_msg.split(" to ")[1])
             d = self.download_icon([(location, extension_to_mimetype(location.rpartition('.')[2]))] + icons, host)
             if not icons:
                 d.addCallbacks(self.on_download_icon_complete, self.on_download_icon_fail,
                                callbackArgs=(host,), errbackArgs=(host,))
-        elif f.check(error.NoResource, error.ForbiddenResource) and icons:
+        elif f.check(NoResource, ForbiddenResource) and icons:
             d = self.download_icon(icons, host)
         elif f.check(NoIconsError, HTMLParseError):
             # No icons, try favicon.ico as an act of desperation

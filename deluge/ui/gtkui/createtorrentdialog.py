@@ -159,7 +159,7 @@ class CreateTorrentDialog:
             chooser.destroy()
             return
 
-        path = result.decode('utf-8').encode(sys.getfilesystemencoding())
+        path = result.decode('utf-8')
 
         self.files_treestore.clear()
         self.files_treestore.append(None, [result, gtk.STOCK_FILE, deluge.common.get_path_size(path)])
@@ -187,7 +187,7 @@ class CreateTorrentDialog:
             chooser.destroy()
             return
 
-        path = result.decode('utf-8').encode(sys.getfilesystemencoding())
+        path = result.decode('utf-8')
 
         self.files_treestore.clear()
         self.files_treestore.append(None, [result, gtk.STOCK_OPEN, deluge.common.get_path_size(path)])
@@ -229,9 +229,11 @@ class CreateTorrentDialog:
         if is_remote:
             # This is a remote path
             dialog = self.glade.get_widget("remote_save_dialog")
+            dialog_save_path = self.glade.get_widget("entry_save_path")
+            dialog_save_path.set_text(self.files_treestore[0][0].rstrip("\\/") + ".torrent")
             response = dialog.run()
             if response == gtk.RESPONSE_OK:
-                result = self.glade.get_widget("entry_save_path").get_text()
+                result = dialog_save_path.get_text()
             else:
                 dialog.hide()
                 return

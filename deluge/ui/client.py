@@ -41,15 +41,11 @@ except ImportError:
     import deluge.rencode as rencode
 
 import zlib
+import subprocess
 
 import deluge.common
 import deluge.component as component
 from deluge.log import LOG as log
-
-if deluge.common.windows_check():
-    import win32api
-else:
-    import subprocess
 
 RPC_RESPONSE = 1
 RPC_ERROR = 2
@@ -579,7 +575,7 @@ class Client(object):
         """
         try:
             if deluge.common.windows_check():
-                win32api.WinExec("deluged --port=%s --config=%s" % (port, config))
+                subprocess.Popen(["deluged", "--port=%s" % port, "--config=%s" % config])
             elif deluge.common.osx_check():
                 subprocess.call(["nohup", "deluged", "--port=%s" % port, "--config=%s" % config])
             else:
@@ -665,7 +661,7 @@ that you forgot to install the deluged package or it's not in your PATH."))
         if event in self.__event_handlers and handler in self.__event_handlers[event]:
             self.__event_handlers[event].remove(handler)
         if self._daemon_proxy:
-            self._daemon_proxy.register_event_handler(event, handler)
+            self._daemon_proxy.deregister_event_handler(event, handler)
 
     def force_call(self, block=False):
         # no-op for now.. we'll see if we need this in the future

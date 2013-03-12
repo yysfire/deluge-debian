@@ -166,6 +166,7 @@ DEFAULT_PREFS = {
     "sidebar_show_trackers": True,
     "sidebar_position": 170,
     "show_rate_in_title": False,
+    "focus_main_window_on_add": True,
     "createtorrent.trackers": []
 }
 
@@ -195,6 +196,14 @@ class GtkUI(object):
                     reactor.stop()
                     return 1
             SetConsoleCtrlHandler(win_handler)
+
+        if deluge.common.osx_check() and gtk.gdk.WINDOWING == "quartz":
+            import gtk_osxapplication
+            self.osxapp = gtk_osxapplication.OSXApplication()
+            def on_die(*args):
+                reactor.stop()
+            self.osxapp.connect("NSApplicationWillTerminate", on_die)
+
 
         # Set process name again to fix gtk issue
         setproctitle(getproctitle())
@@ -237,6 +246,18 @@ class GtkUI(object):
         self.statusbar = StatusBar()
         self.addtorrentdialog = AddTorrentDialog()
 
+        if deluge.common.osx_check() and gtk.gdk.WINDOWING == "quartz":
+            def nsapp_open_file(osxapp, filename):
+                # Will be raised at app launch (python opening main script)
+                if filename.endswith('Deluge-bin'):
+                    return True
+                from deluge.ui.gtkui.ipcinterface import process_args
+                process_args([filename])
+            self.osxapp.connect("NSApplicationOpenFile", nsapp_open_file)
+            from menubar_osx import menubar_osx
+            menubar_osx(self, self.osxapp)
+            self.osxapp.ready()
+
         # Initalize the plugins
         self.plugins = PluginManager()
 
@@ -260,7 +281,7 @@ class GtkUI(object):
         component.stop()
 
         # Process any pending gtk events since the mainloop has been quit
-        if not deluge.common.windows_check():
+        if not deluge.common.windows_check() and not deluge.common.osx_check():
             while gtk.events_pending() and reactor.running:
                 reactor.doIteration(0)
 
@@ -303,17 +324,29 @@ class GtkUI(object):
                 # Turning off classic_mode
                 self.config["classic_mode"] = False
                 self.__start_non_classic()
-
             try:
-                client.start_classic_mode()
-            except deluge.error.DaemonRunningError:
-                d = dialogs.YesNoDialog(
-                    _("Turn off Classic Mode?"),
-                    _("It appears that a Deluge daemon process (deluged) is already running.\n\n\
+                try:
+                    client.start_classic_mode()
+                except deluge.error.DaemonRunningError:
+                    d = dialogs.YesNoDialog(
+                        _("Turn off Classic Mode?"),
+                        _("It appears that a Deluge daemon process (deluged) is already running.\n\n\
 You will either need to stop the daemon or turn off Classic Mode to continue.")).run()
-
-                self.started_in_classic = False
-                d.addCallback(on_dialog_response)
+                    self.started_in_classic = False
+                    d.addCallback(on_dialog_response)
+                except ImportError, e:
+                    if "No module named libtorrent" in e.message:
+                        d = dialogs.YesNoDialog(
+                        _("Enable Thin Client Mode?"),
+                        _("Thin client mode is only available because libtorrent is not installed.\n\n\
+To use Deluge standalone (Classic mode) please install libtorrent.")).run()
+                        self.started_in_classic = False
+                        d.addCallback(on_dialog_response)
+                    else:
+                        raise
+                else:
+                    component.start()
+                    return
             except Exception, e:
                 import traceback
                 tb = sys.exc_info()
@@ -328,10 +361,6 @@ Please see the details below for more information."), details=traceback.format_e
                     self.started_in_classic = False
                     d.addCallback(on_dialog_response)
                 ed.addCallback(on_ed_response)
-            else:
-                component.start()
-                return
-
         else:
             self.__start_non_classic()
 
@@ -373,7 +402,11 @@ Please see the details below for more information."), details=traceback.format_e
 
             if self.config["show_connection_manager_on_start"]:
                 # XXX: We need to call a simulate() here, but this could be a bug in twisted
-                reactor.simulate()
+                try:
+                    reactor._simulate()
+                except AttributeError:
+                    # twisted < 12
+                    reactor.simulate()
                 self.connectionmanager.show()
 
 

@@ -75,11 +75,13 @@ class TorrentInfo(object):
         self.__m_info_hash = sha(bencode.bencode(self.__m_metadata["info"])).hexdigest()
 
         # Get encoding from torrent file if available
-        self.encoding = "UTF-8"
+        self.encoding = None
         if "encoding" in self.__m_metadata:
             self.encoding = self.__m_metadata["encoding"]
         elif "codepage" in self.__m_metadata:
             self.encoding = str(self.__m_metadata["codepage"])
+        if not self.encoding:
+            self.encoding = "UTF-8"
 
         # Check if 'name.utf-8' is in the torrent and if not try to decode the string
         # using the encoding found.
@@ -102,8 +104,11 @@ class TorrentInfo(object):
                 else:
                     path = decode_string(os.path.join(prefix, decode_string(os.path.join(*f["path"]), self.encoding)), self.encoding)
                 f["index"] = index
+                if "sha1" in f and len(f["sha1"]) == 20:
+                        f["sha1"] = f["sha1"].encode('hex')
+                if "ed2k" in f and len(f["ed2k"]) == 16:
+                        f["ed2k"] = f["ed2k"].encode('hex')
                 paths[path] = f
-
                 dirname = os.path.dirname(path)
                 while dirname:
                     dirinfo = dirs.setdefault(dirname, {})

@@ -376,7 +376,8 @@ class TorrentManager(component.Component):
                 resume_data = self.legacy_get_resume_data_from_file(state.torrent_id)
                 self.legacy_delete_resume_data(state.torrent_id)
 
-            add_torrent_params["resume_data"] = resume_data
+            if resume_data:
+                add_torrent_params["resume_data"] = resume_data
         else:
             # We have a torrent_info object or magnet uri so we're not loading from state.
             if torrent_info:
@@ -418,13 +419,19 @@ class TorrentManager(component.Component):
             # Check for renamed files and if so, rename them in the torrent_info
             # before adding to the session.
             if options["mapped_files"]:
-                for index, filename in options["mapped_files"].items():
-                    filename = deluge.core.torrent.sanitize_filepath(filename)
-                    log.debug("renaming file index %s to %s", index, filename)
-                    torrent_info.rename_file(index, utf8_encoded(filename))
+                for index, fname in options["mapped_files"].items():
+                    try:
+                        fname = unicode(fname, "utf-8")
+                    except TypeError:
+                        pass
+                    fname = deluge.core.torrent.sanitize_filepath(fname)
+                    log.debug("renaming file index %s to %s", index, fname)
+                    try:
+                        torrent_info.rename_file(index, fname)
+                    except TypeError:
+                        torrent_info.rename_file(index, fname.encode("utf-8"))
 
             add_torrent_params["ti"] = torrent_info
-            add_torrent_params["resume_data"] = ""
 
         #log.info("Adding torrent: %s", filename)
         log.debug("options: %s", options)
@@ -546,11 +553,10 @@ class TorrentManager(component.Component):
         :raises InvalidTorrentError: if the torrent_id is not in the session
 
         """
-
-        if torrent_id not in self.torrents:
+        try:
+            torrent_name = self.torrents[torrent_id].get_status(["name"])["name"]
+        except KeyError:
             raise InvalidTorrentError("torrent_id not in session")
-
-        torrent_name = self.torrents[torrent_id].get_status(["name"])["name"]
 
         # Emit the signal to the clients
         component.get("EventManager").emit(PreTorrentRemovedEvent(torrent_id))
@@ -590,12 +596,15 @@ class TorrentManager(component.Component):
 
         # Remove from set if it wasn't finished
         if not self.torrents[torrent_id].is_finished:
-            self.queued_torrents.remove(torrent_id)
+            try:
+                self.queued_torrents.remove(torrent_id)
+            except KeyError:
+                log.debug("%s isn't in queued torrents set?", torrent_id)
 
         # Remove the torrent from deluge's session
         try:
             del self.torrents[torrent_id]
-        except KeyError, ValueError:
+        except (KeyError, ValueError):
             return False
 
         # Save the session state
@@ -631,7 +640,7 @@ class TorrentManager(component.Component):
 
         # Reorder the state.torrents list to add torrents in the correct queue
         # order.
-        state.torrents.sort(key=operator.attrgetter("queue"))
+        state.torrents.sort(key=operator.attrgetter("queue"), reverse=self.config["queue_new_to_top"])
 
         resume_data = self.load_resume_data_file()
 
@@ -779,10 +788,10 @@ class TorrentManager(component.Component):
         Cleans up after libtorrent folder renames.
 
         """
-        if torrent_id not in self.torrents:
-            raise InvalidTorrentError("torrent_id is not in session")
-
-        info = self.torrents[torrent_id].get_status(['save_path'])
+        try:
+            info = self.torrents[torrent_id].get_status(['save_path'])
+        except KeyError:
+            raise InvalidTorrentError("torrent_id not in session")
         # Regex removes leading slashes that causes join function to ignore save_path
         folder_full_path = os.path.join(info['save_path'], re.sub("^/*", "", folder))
         folder_full_path = os.path.normpath(folder_full_path)
@@ -893,7 +902,11 @@ class TorrentManager(component.Component):
         torrent.update_state()
 
         # Torrent is no longer part of the queue
-        self.queued_torrents.remove(torrent_id)
+        try:
+            self.queued_torrents.remove(torrent_id)
+        except KeyError:
+            # Sometimes libtorrent fires a TorrentFinishedEvent twice
+            log.debug("%s isn't in queued torrents set?", torrent_id)
 
         # Only save resume data if it was actually downloaded something. Helps
         # on startup with big queues with lots of seeding torrents. Libtorrent
@@ -1097,7 +1110,7 @@ class TorrentManager(component.Component):
             torrent = self.torrents[str(alert.handle.info_hash())]
         except:
             return
-        torrent.write_torrentfile()
+        torrent.on_metadata_received()
 
     def on_alert_file_error(self, alert):
         log.debug("on_alert_file_error: %s", alert.message())

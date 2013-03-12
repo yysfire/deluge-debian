@@ -174,7 +174,7 @@ class Torrent(object):
             self.trackers = []
             # Create a list of trackers
             for value in self.handle.trackers():
-                if lt.version_minor < 15:
+                if lt.version_major == 0 and lt.version_minor < 15:
                     tracker = {}
                     tracker["url"] = value.url
                     tracker["tier"] = value.tier
@@ -478,7 +478,8 @@ class Torrent(object):
         for index, file in enumerate(files):
             ret.append({
                 'index': index,
-                'path': file.path.decode("utf8", "ignore"),
+                # Make path separators consistent across platforms
+                'path': file.path.decode("utf8").replace('\\', '/'),
                 'size': file.size,
                 'offset': file.offset
             })
@@ -667,7 +668,7 @@ class Torrent(object):
 
         def ti_name():
             if self.handle.has_metadata():
-                name = self.torrent_info.file_at(0).path.split("/", 1)[0]
+                name = self.torrent_info.file_at(0).path.replace("\\", "/", 1).split("/", 1)[0]
                 if not name:
                     name = self.torrent_info.name()
                 try:
@@ -833,26 +834,30 @@ class Torrent(object):
 
     def move_storage(self, dest):
         """Move a torrent's storage location"""
-
-        # Attempt to convert utf8 path to unicode
-        # Note: Inconsistent encoding for 'dest', needs future investigation
         try:
-           dest_u = unicode(dest, "utf-8")
+           dest = unicode(dest, "utf-8")
         except TypeError:
            # String is already unicode
-           dest_u = dest
-
-        if not os.path.exists(dest_u):
+           pass
+            
+        if not os.path.exists(dest):
             try:
                 # Try to make the destination path if it doesn't exist
-                os.makedirs(dest_u)
+                os.makedirs(dest)
             except IOError, e:
                 log.exception(e)
                 log.error("Could not move storage for torrent %s since %s does not exist and could not create the directory.", self.torrent_id, dest_u)
                 return False
+
+        dest_bytes = dest.encode('utf-8')
         try:
-            self.handle.move_storage(dest_u)
-        except:
+            # libtorrent needs unicode object if wstrings are enabled, utf8 bytestring otherwise
+            try:
+                self.handle.move_storage(dest)
+            except TypeError:
+                self.handle.move_storage(dest_bytes)
+        except Exception, e:
+            log.error("Error calling libtorrent move_storage: %s" % e)
             return False
 
         return True
@@ -862,6 +867,11 @@ class Torrent(object):
         returned in a libtorrent alert"""
         self.handle.save_resume_data()
         self.waiting_on_resume_data = True
+
+    def on_metadata_received(self):
+        if self.options["prioritize_first_last_pieces"]:
+            self.set_prioritize_first_last(True)
+        self.write_torrentfile()
 
     def write_torrentfile(self):
         """Writes the torrent file"""
@@ -928,8 +938,17 @@ class Torrent(object):
         """Renames files in the torrent. 'filenames' should be a list of
         (index, filename) pairs."""
         for index, filename in filenames:
+            # Make sure filename is a unicode object
+            try:
+                filename = unicode(filename, "utf-8")
+            except TypeError:
+                pass
             filename = sanitize_filepath(filename)
-            self.handle.rename_file(index, filename.encode("utf-8"))
+            # libtorrent needs unicode object if wstrings are enabled, utf8 bytestring otherwise
+            try:
+                self.handle.rename_file(index, filename)
+            except TypeError:
+                self.handle.rename_file(index, filename.encode("utf-8"))
 
     def rename_folder(self, folder, new_folder):
         """Renames a folder within a torrent.  This basically does a file rename
@@ -946,7 +965,11 @@ class Torrent(object):
             if f["path"].startswith(folder):
                 # Keep a list of filerenames we're waiting on
                 wait_on_folder[2].append(f["index"])
-                self.handle.rename_file(f["index"], f["path"].replace(folder, new_folder, 1).encode("utf-8"))
+                new_path = f["path"].replace(folder, new_folder, 1)
+                try:
+                    self.handle.rename_file(f["index"], new_path)
+                except TypeError:
+                    self.handle.rename_file(f["index"], new_path.encode("utf-8"))
         self.waiting_on_folder_rename.append(wait_on_folder)
 
     def cleanup_prev_status(self):
