@@ -8,7 +8,7 @@ Subject: new_release_check
  2 个文件被修改，插入 3 行(+)，删除 3 行(-)
 
 diff --git a/deluge/core/preferencesmanager.py b/deluge/core/preferencesmanager.py
-index 40070bb..137961a 100644
+index 7a3cc2c..c23c52a 100644
 --- a/deluge/core/preferencesmanager.py
 +++ b/deluge/core/preferencesmanager.py
 @@ -102,7 +102,7 @@ DEFAULT_PREFS = {
@@ -21,7 +21,7 @@ index 40070bb..137961a 100644
          "peer": {
              "type": 0,
 diff --git a/deluge/ui/gtkui/gtkui.py b/deluge/ui/gtkui/gtkui.py
-index 08bcfd4..e5948e1 100644
+index 443c76d..d71a6ed 100644
 --- a/deluge/ui/gtkui/gtkui.py
 +++ b/deluge/ui/gtkui/gtkui.py
 @@ -124,7 +124,7 @@ DEFAULT_PREFS = {
